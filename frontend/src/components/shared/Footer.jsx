@@ -23,7 +23,7 @@ export default function Footer() {
                         <Text fontWeight={'500'} fontSize={'lg'} mb={2}>Company</Text>
                         <Link as={RouterLink} to="/about">About Us</Link>
                         <Link as={RouterLink} to="/contact">Contact Us</Link>
-                        <Link as={RouterLink} to="/careers">Careers</Link>
+                        <Link as={RouterLink} to="/instructors">Our Instructors</Link>
                     </Stack>
 
                     <Stack align={'flex-start'}>
@@ -34,7 +34,7 @@ export default function Footer() {
                     </Stack>
 
                     <Stack align={'flex-start'}>
-                        <Text fontWeight={'500'} fontSize={'lg'} mb={2}>Students</Text>
+                        <Text fontWeight={'500'} fontSize={'lg'} mb={2}>Learning</Text>
                         <Link as={RouterLink} to="/courses">All Courses</Link>
                         <Link as={RouterLink} to="/enrollments">My Learning</Link>
                         <Link as={RouterLink} to="/wishlist">Wishlist</Link>
@@ -42,9 +42,9 @@ export default function Footer() {
 
                     <Stack align={'flex-start'}>
                         <Text fontWeight={'500'} fontSize={'lg'} mb={2}>Instructors</Text>
-                        <Link as={RouterLink} to="/inst_dashboard">Instructor Dashboard</Link>
-                        <Link as={RouterLink} to="/instructor/courses">My Courses</Link>
-                        <Link as={RouterLink} to="/instructor/earnings">Earnings</Link>
+                        <Link as={RouterLink} to="/instructors">View All Instructors</Link>
+                        <Link as={RouterLink} to="/instructors/featured">Featured Instructors</Link>
+                        <Link as={RouterLink} to="/instructors/top">Top Rated Instructors</Link>
                     </Stack>
                 </SimpleGrid>
             </Container>

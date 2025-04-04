@@ -20,28 +20,21 @@ const CourseCard = ({ course }) => {
     const {
         id,
         title,
-        thumbnail,
+        thumbnail_url,
         instructor,
         rating,
         total_students,
         difficulty_level,
-        duration,
-        institution,
+        duration_in_weeks,
         description,
     } = course;
 
-    const BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:8000';
-    const defaultImageUrl = 'https://placehold.co/600x400';
+    const defaultImageUrl = 'https://placehold.co/600x400?text=Course+Image';
 
-    const getThumbnailUrl = (thumbnailPath) => {
-        if (!thumbnailPath) return defaultImageUrl;
-        if (thumbnailPath.startsWith('http')) return thumbnailPath;
-        return `${BASE_URL}${thumbnailPath}`;
-    };
-
-    console.log('Course thumbnail:', {
-        original: thumbnail,
-        processed: getThumbnailUrl(thumbnail)
+    console.log('Course data:', {
+        title,
+        thumbnail: thumbnail_url,
+        instructor
     });
 
     return (
@@ -57,7 +50,7 @@ const CourseCard = ({ course }) => {
         >
             <Box position="relative" height="200px">
                 <Image
-                    src={getThumbnailUrl(thumbnail)}
+                    src={thumbnail_url || defaultImageUrl}
                     alt={title}
                     width="100%"
                     height="100%"
@@ -79,11 +72,6 @@ const CourseCard = ({ course }) => {
 
             <Box p={6}>
                 <Stack spacing={3}>
-                    {/* Institution Badge */}
-                    <Badge colorScheme="blue" alignSelf="start">
-                        {institution || 'Featured Institution'}
-                    </Badge>
-
                     {/* Title */}
                     <LinkOverlay as={Link} to={`/courses/${id}`}>
                         <Heading size="md" noOfLines={2}>
@@ -107,7 +95,7 @@ const CourseCard = ({ course }) => {
                         <HStack>
                             <Icon as={FaClock} color="gray.500" />
                             <Text fontSize="sm" color="gray.500">
-                                {duration || 'Self-paced'}
+                                {duration_in_weeks ? `${duration_in_weeks} weeks` : 'Self-paced'}
                             </Text>
                         </HStack>
                     </HStack>

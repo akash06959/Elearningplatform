@@ -15,9 +15,6 @@ import {
     useColorModeValue,
     useBreakpointValue,
     useDisclosure,
-    Input,
-    InputGroup,
-    InputLeftElement,
     Avatar,
     Menu,
     MenuButton,
@@ -29,33 +26,43 @@ import {
     CloseIcon,
     ChevronDownIcon,
     ChevronRightIcon,
-    SearchIcon,
 } from '@chakra-ui/icons';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../contexts/AuthContext';
 
-export default function Navbar({ onSearch }) {
+export default function Navbar() {
     const { isOpen, onToggle } = useDisclosure();
     const { user, logoutUser } = useContext(AuthContext);
-    const userType = localStorage.getItem('user_type');
+    const navigate = useNavigate();
+    const userType = user?.role || localStorage.getItem('userType');
     const dashboardPath = userType === 'instructor' ? '/inst_dashboard' : '/std_dashboard';
+
+    const handleLogoClick = (e) => {
+        e.preventDefault();
+        if (user) {
+            navigate(dashboardPath);
+        } else {
+            navigate('/');
+        }
+    };
 
     return (
         <Box>
             <Flex
-                bg={useColorModeValue('white', 'gray.800')}
-                color={useColorModeValue('gray.600', 'white')}
+                bg="blue.600"
+                color="white"
                 minH={'60px'}
                 py={{ base: 2 }}
                 px={{ base: 4 }}
                 borderBottom={1}
                 borderStyle={'solid'}
-                borderColor={useColorModeValue('gray.200', 'gray.900')}
+                borderColor="blue.500"
                 align={'center'}
                 position="fixed"
                 top={0}
                 width="100%"
                 zIndex={1000}
+                boxShadow="0 2px 4px rgba(0,0,0,0.1)"
             >
                 <Flex
                     flex={{ base: 1, md: 'auto' }}
@@ -66,6 +73,8 @@ export default function Navbar({ onSearch }) {
                         onClick={onToggle}
                         icon={isOpen ? <CloseIcon w={3} h={3} /> : <HamburgerIcon w={5} h={5} />}
                         variant={'ghost'}
+                        color="white"
+                        _hover={{ bg: 'blue.500' }}
                         aria-label={'Toggle Navigation'}
                     />
                 </Flex>
@@ -73,17 +82,55 @@ export default function Navbar({ onSearch }) {
                     <Text
                         textAlign={useBreakpointValue({ base: 'center', md: 'left' })}
                         fontFamily={'heading'}
-                        color={useColorModeValue('gray.800', 'white')}
+                        color="white"
                         fontWeight="bold"
                         fontSize="xl"
-                        as={Link}
-                        to="/"
+                        cursor="pointer"
+                        onClick={handleLogoClick}
                     >
                         ELearning Platform
                     </Text>
 
                     <Flex display={{ base: 'none', md: 'flex' }} ml={10}>
-                        <DesktopNav />
+                        <Stack direction={'row'} spacing={4}>
+                            {user && (
+                                <>
+                                    <ChakraLink
+                                        as={Link}
+                                        to="/courses"
+                                        p={2}
+                                        fontSize={'sm'}
+                                        fontWeight={500}
+                                        color={'white'}
+                                        _hover={{ color: 'blue.100' }}
+                                    >
+                                        Courses
+                                    </ChakraLink>
+                                    <ChakraLink
+                                        as={Link}
+                                        to="/enrollments"
+                                        p={2}
+                                        fontSize={'sm'}
+                                        fontWeight={500}
+                                        color={'white'}
+                                        _hover={{ color: 'blue.100' }}
+                                    >
+                                        My Learning
+                                    </ChakraLink>
+                                    <ChakraLink
+                                        as={Link}
+                                        to="/instructors"
+                                        p={2}
+                                        fontSize={'sm'}
+                                        fontWeight={500}
+                                        color={'white'}
+                                        _hover={{ color: 'blue.100' }}
+                                    >
+                                        Instructors
+                                    </ChakraLink>
+                                </>
+                            )}
+                        </Stack>
                     </Flex>
                 </Flex>
 
@@ -94,17 +141,6 @@ export default function Navbar({ onSearch }) {
                     spacing={6}
                     align="center"
                 >
-                    <InputGroup maxW="300px" display={{ base: 'none', md: 'flex' }}>
-                        <InputLeftElement pointerEvents="none">
-                            <SearchIcon color="gray.300" />
-                        </InputLeftElement>
-                        <Input
-                            placeholder="Search courses..."
-                            onChange={(e) => onSearch && onSearch(e.target.value)}
-                            borderRadius="full"
-                        />
-                    </InputGroup>
-
                     {user ? (
                         <Menu>
                             <MenuButton
@@ -117,17 +153,26 @@ export default function Navbar({ onSearch }) {
                                 <Avatar
                                     size={'sm'}
                                     name={user.username}
+                                    bg="blue.300"
                                 />
                             </MenuButton>
-                            <MenuList>
-                                <MenuItem as={Link} to="/profile">Profile</MenuItem>
+                            <MenuList bg="white" color="gray.800">
                                 <MenuItem as={Link} to={dashboardPath}>Dashboard</MenuItem>
+                                <MenuItem as={Link} to="/profile">Profile</MenuItem>
                                 <MenuItem onClick={logoutUser}>Sign Out</MenuItem>
                             </MenuList>
                         </Menu>
                     ) : (
                         <>
-                            <Button as={Link} to="/login" fontSize={'sm'} fontWeight={400}>
+                            <Button 
+                                as={Link} 
+                                to="/login" 
+                                fontSize={'sm'} 
+                                fontWeight={400}
+                                variant="ghost"
+                                color="white"
+                                _hover={{ bg: 'blue.500' }}
+                            >
                                 Sign In
                             </Button>
                             <Button
@@ -136,10 +181,10 @@ export default function Navbar({ onSearch }) {
                                 display={{ base: 'none', md: 'inline-flex' }}
                                 fontSize={'sm'}
                                 fontWeight={600}
-                                color={'white'}
-                                bg={'blue.400'}
+                                color={'blue.600'}
+                                bg={'white'}
                                 _hover={{
-                                    bg: 'blue.300',
+                                    bg: 'blue.50',
                                 }}
                             >
                                 Sign Up
@@ -150,16 +195,61 @@ export default function Navbar({ onSearch }) {
             </Flex>
 
             <Collapse in={isOpen} animateOpacity>
-                <MobileNav />
+                <Box
+                    bg="blue.600"
+                    p={4}
+                    display={{ md: 'none' }}
+                >
+                    <Stack spacing={4}>
+                        {user && (
+                            <>
+                                <ChakraLink
+                                    as={Link}
+                                    to="/courses"
+                                    p={2}
+                                    fontSize={'sm'}
+                                    fontWeight={500}
+                                    color={'white'}
+                                    _hover={{ color: 'blue.100' }}
+                                >
+                                    Courses
+                                </ChakraLink>
+                                <ChakraLink
+                                    as={Link}
+                                    to="/enrollments"
+                                    p={2}
+                                    fontSize={'sm'}
+                                    fontWeight={500}
+                                    color={'white'}
+                                    _hover={{ color: 'blue.100' }}
+                                >
+                                    My Learning
+                                </ChakraLink>
+                                <ChakraLink
+                                    as={Link}
+                                    to="/instructors"
+                                    p={2}
+                                    fontSize={'sm'}
+                                    fontWeight={500}
+                                    color={'white'}
+                                    _hover={{ color: 'blue.100' }}
+                                >
+                                    Instructors
+                                </ChakraLink>
+                            </>
+                        )}
+                    </Stack>
+                </Box>
             </Collapse>
+            
+            {/* Add spacing to prevent content from hiding under fixed navbar */}
+            <Box height="60px" />
         </Box>
     );
 }
 
 const DesktopNav = () => {
-    const linkColor = useColorModeValue('gray.600', 'gray.200');
-    const linkHoverColor = useColorModeValue('gray.800', 'white');
-    const popoverContentBgColor = useColorModeValue('white', 'gray.800');
+    const linkHoverColor = 'blue.100';
 
     return (
         <Stack direction={'row'} spacing={4}>
@@ -173,7 +263,7 @@ const DesktopNav = () => {
                                 to={navItem.href ?? '#'}
                                 fontSize={'sm'}
                                 fontWeight={500}
-                                color={linkColor}
+                                color={'white'}
                                 _hover={{
                                     textDecoration: 'none',
                                     color: linkHoverColor,
@@ -187,10 +277,11 @@ const DesktopNav = () => {
                             <PopoverContent
                                 border={0}
                                 boxShadow={'xl'}
-                                bg={popoverContentBgColor}
+                                bg={'white'}
                                 p={4}
                                 rounded={'xl'}
                                 minW={'sm'}
+                                color="gray.800"
                             >
                                 <Stack>
                                     {navItem.children.map((child) => (
@@ -210,18 +301,18 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
     return (
         <ChakraLink
             as={Link}
-            to={href}
+            to={href ?? '#'}
             role={'group'}
             display={'block'}
             p={2}
             rounded={'md'}
-            _hover={{ bg: useColorModeValue('blue.50', 'gray.900') }}
+            _hover={{ bg: 'blue.50' }}
         >
             <Stack direction={'row'} align={'center'}>
                 <Box>
                     <Text
                         transition={'all .3s ease'}
-                        _groupHover={{ color: 'blue.400' }}
+                        _groupHover={{ color: 'blue.500' }}
                         fontWeight={500}
                     >
                         {label}
@@ -232,12 +323,12 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
                     transition={'all .3s ease'}
                     transform={'translateX(-10px)'}
                     opacity={0}
-                    _groupHover={{ opacity: '100%', transform: 'translateX(0)' }}
+                    _groupHover={{ opacity: 1, transform: 'translateX(0)' }}
                     justify={'flex-end'}
                     align={'center'}
                     flex={1}
                 >
-                    <Icon color={'blue.400'} w={5} h={5} as={ChevronRightIcon} />
+                    <Icon color={'blue.500'} w={5} h={5} as={ChevronRightIcon} />
                 </Flex>
             </Stack>
         </ChakraLink>
@@ -246,16 +337,10 @@ const DesktopSubNav = ({ label, href, subLabel }) => {
 
 const MobileNav = () => {
     return (
-        <Stack bg={useColorModeValue('white', 'gray.800')} p={4} display={{ md: 'none' }}>
+        <Stack bg={'blue.600'} p={4} display={{ md: 'none' }}>
             {NAV_ITEMS.map((navItem) => (
                 <MobileNavItem key={navItem.label} {...navItem} />
             ))}
-            <InputGroup mt={4}>
-                <InputLeftElement pointerEvents="none">
-                    <SearchIcon color="gray.300" />
-                </InputLeftElement>
-                <Input placeholder="Search courses..." borderRadius="full" />
-            </InputGroup>
         </Stack>
     );
 };
@@ -275,7 +360,7 @@ const MobileNavItem = ({ label, children, href }) => {
                     textDecoration: 'none',
                 }}
             >
-                <Text fontWeight={600} color={useColorModeValue('gray.600', 'gray.200')}>
+                <Text fontWeight={600} color={'white'}>
                     {label}
                 </Text>
                 {children && (
@@ -295,7 +380,7 @@ const MobileNavItem = ({ label, children, href }) => {
                     pl={4}
                     borderLeft={1}
                     borderStyle={'solid'}
-                    borderColor={useColorModeValue('gray.200', 'gray.700')}
+                    borderColor={'blue.500'}
                     align={'start'}
                 >
                     {children &&
@@ -305,6 +390,8 @@ const MobileNavItem = ({ label, children, href }) => {
                                 py={2}
                                 as={Link}
                                 to={child.href}
+                                color="white"
+                                _hover={{ color: 'blue.100' }}
                             >
                                 {child.label}
                             </ChakraLink>
@@ -317,31 +404,19 @@ const MobileNavItem = ({ label, children, href }) => {
 
 const NAV_ITEMS = [
     {
+        label: 'Home',
+        href: '/',
+    },
+    {
         label: 'Courses',
         href: '/courses',
     },
     {
         label: 'My Learning',
-        href: '/enrollments',
+        href: '/my-courses',
     },
     {
-        label: 'Categories',
-        children: [
-            {
-                label: 'Programming',
-                subLabel: 'Learn coding and development',
-                href: '/courses?category=programming',
-            },
-            {
-                label: 'Business',
-                subLabel: 'Business and entrepreneurship',
-                href: '/courses?category=business',
-            },
-            {
-                label: 'Design',
-                subLabel: 'UI/UX and graphic design',
-                href: '/courses?category=design',
-            },
-        ],
+        label: 'About',
+        href: '/about',
     },
 ]; 

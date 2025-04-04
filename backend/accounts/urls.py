@@ -14,4 +14,9 @@ urlpatterns = [
     
     # API endpoints
     path('api/profile/', views.UserProfileAPIView.as_view(), name='profile-api'),
+    
+    # Instructor list endpoints
+    path('api/instructors/', views.instructor_list, name='instructor-list'),
+    path('api/instructors/featured/', views.featured_instructors, name='featured-instructors'),
+    path('api/instructors/top-rated/', views.top_rated_instructors, name='top-rated-instructors'),
 ]

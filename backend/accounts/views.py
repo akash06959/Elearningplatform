@@ -9,10 +9,15 @@ from django.urls import reverse_lazy
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.decorators import api_view, permission_classes
+from django.db.models import Count, Avg
+from django.contrib.auth import get_user_model
 
 from .models import User
 from .forms import UserRegistrationForm, UserProfileForm, UserLoginForm
 from .serializers import UserSerializer
+
+User = get_user_model()
 
 class UserRegistrationView(CreateView):
     model = User
@@ -112,3 +117,69 @@ class UserProfileAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+def instructor_list(request):
+    instructors = User.objects.filter(role='instructor').annotate(
+        total_courses=Count('courses'),
+        total_students=Count('courses__enrollments', distinct=True),
+        rating=Avg('courses__ratings__rating')
+    )
+    
+    data = [{
+        'id': instructor.id,
+        'username': instructor.username,
+        'name': f"{instructor.first_name} {instructor.last_name}".strip() or instructor.username,
+        'profile_picture': instructor.profile_picture.url if instructor.profile_picture else None,
+        'title': instructor.title,
+        'bio': instructor.bio,
+        'total_courses': instructor.total_courses,
+        'total_students': instructor.total_students,
+        'rating': instructor.rating
+    } for instructor in instructors]
+    
+    return Response(data)
+
+@api_view(['GET'])
+def featured_instructors(request):
+    instructors = User.objects.filter(role='instructor', is_featured=True).annotate(
+        total_courses=Count('courses'),
+        total_students=Count('courses__enrollments', distinct=True),
+        rating=Avg('courses__ratings__rating')
+    )
+    
+    data = [{
+        'id': instructor.id,
+        'username': instructor.username,
+        'name': f"{instructor.first_name} {instructor.last_name}".strip() or instructor.username,
+        'profile_picture': instructor.profile_picture.url if instructor.profile_picture else None,
+        'title': instructor.title,
+        'bio': instructor.bio,
+        'total_courses': instructor.total_courses,
+        'total_students': instructor.total_students,
+        'rating': instructor.rating
+    } for instructor in instructors]
+    
+    return Response(data)
+
+@api_view(['GET'])
+def top_rated_instructors(request):
+    instructors = User.objects.filter(role='instructor').annotate(
+        total_courses=Count('courses'),
+        total_students=Count('courses__enrollments', distinct=True),
+        rating=Avg('courses__ratings__rating')
+    ).filter(rating__isnull=False).order_by('-rating')[:10]
+    
+    data = [{
+        'id': instructor.id,
+        'username': instructor.username,
+        'name': f"{instructor.first_name} {instructor.last_name}".strip() or instructor.username,
+        'profile_picture': instructor.profile_picture.url if instructor.profile_picture else None,
+        'title': instructor.title,
+        'bio': instructor.bio,
+        'total_courses': instructor.total_courses,
+        'total_students': instructor.total_students,
+        'rating': instructor.rating
+    } for instructor in instructors]
+    
+    return Response(data)

@@ -12,6 +12,7 @@ import CreateCourse from './components/instructor/CreateCourse';
 import ForgotPassword from './components/auth/ForgotPassword';
 import InstructorRoute from './components/auth/InstructorRoute';
 import InstructorDashboard from './components/instructor/InstructorDashboard';
+import InstructorList from './components/instructors/InstructorList';
 
 function App() {
   const { user } = useContext(AuthContext);
@@ -58,6 +59,11 @@ function App() {
       } />
       <Route path="/courses" element={<CourseList />} />
       <Route path="/courses/:courseId" element={<CourseDetail />} />
+      
+      {/* Instructor List Routes */}
+      <Route path="/instructors" element={<InstructorList />} />
+      <Route path="/instructors/featured" element={<InstructorList />} />
+      <Route path="/instructors/top" element={<InstructorList />} />
       
       {/* Instructor Routes - Protected */}
       <Route 

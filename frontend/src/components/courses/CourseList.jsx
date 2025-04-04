@@ -15,9 +15,12 @@ import {
   HStack,
   Spinner,
   useColorModeValue,
+  Flex,
 } from '@chakra-ui/react';
 import { SearchIcon } from '@chakra-ui/icons';
 import CourseCard from './CourseCard';
+import Navbar from '../shared/Navbar';
+import Footer from '../shared/Footer';
 
 const CourseList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,9 +32,10 @@ const CourseList = () => {
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
   const [categories, setCategories] = useState([]);
 
-  // Move useColorModeValue hooks to the top level
+  // Move all useColorModeValue hooks to the top level
   const inputBg = useColorModeValue('white', 'gray.700');
   const selectBg = useColorModeValue('white', 'gray.700');
+  const pageBg = useColorModeValue('gray.50', 'gray.800');
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -104,71 +108,85 @@ const CourseList = () => {
 
   if (loading) {
     return (
-      <Box textAlign="center" py={10}>
-        <Spinner size="xl" />
-      </Box>
+      <Flex direction="column" minH="100vh">
+        <Navbar />
+        <Flex flex="1" justify="center" align="center" bg={pageBg}>
+          <Spinner size="xl" />
+        </Flex>
+        <Footer />
+      </Flex>
     );
   }
 
   if (error) {
     return (
-      <Box textAlign="center" py={10}>
-        <Text color="red.500">Error: {error}</Text>
-      </Box>
+      <Flex direction="column" minH="100vh">
+        <Navbar />
+        <Flex flex="1" justify="center" align="center" bg={pageBg}>
+          <Text color="red.500">Error: {error}</Text>
+        </Flex>
+        <Footer />
+      </Flex>
     );
   }
 
   return (
-    <Container maxW="container.xl" py={8}>
-      <VStack spacing={8} align="stretch">
-        <Heading as="h1" size="xl" textAlign="center">
-          Available Courses
-        </Heading>
+    <Flex direction="column" minH="100vh">
+      <Navbar />
+      <Box flex="1" bg={pageBg}>
+        <Container maxW="container.xl" py={8}>
+          <VStack spacing={8} align="stretch">
+            <Heading as="h1" size="xl" textAlign="center">
+              Available Courses
+            </Heading>
 
-        {/* Search and Filter Section */}
-        <HStack spacing={4}>
-          <InputGroup>
-            <InputLeftElement pointerEvents="none">
-              <SearchIcon color="gray.400" />
-            </InputLeftElement>
-            <Input
-              placeholder="Search courses..."
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              bg={inputBg}
-            />
-          </InputGroup>
+            {/* Search and Filter Section */}
+            <HStack spacing={4}>
+              <InputGroup>
+                <InputLeftElement pointerEvents="none">
+                  <SearchIcon color="gray.400" />
+                </InputLeftElement>
+                <Input
+                  placeholder="Search courses..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  bg={inputBg}
+                />
+              </InputGroup>
 
-          <Select
-            placeholder="All Categories"
-            value={selectedCategory}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            bg={selectBg}
-            maxW="200px"
-          >
-            <option value="">All Categories</option>
-            {categories.map(category => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </Select>
-        </HStack>
+              <Select
+                placeholder="All Categories"
+                value={selectedCategory}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                bg={selectBg}
+                maxW="200px"
+              >
+                <option value="">All Categories</option>
+                {categories.map(category => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </Select>
+            </HStack>
 
-        {/* Results Section */}
-        {filteredCourses.length > 0 ? (
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
-            {filteredCourses.map(course => (
-              <CourseCard key={course.id} course={course} />
-            ))}
-          </SimpleGrid>
-        ) : (
-          <Text textAlign="center" color="gray.500" py={10}>
-            No courses found matching your criteria.
-          </Text>
-        )}
-      </VStack>
-    </Container>
+            {/* Results Section */}
+            {filteredCourses.length > 0 ? (
+              <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+                {filteredCourses.map(course => (
+                  <CourseCard key={course.id} course={course} />
+                ))}
+              </SimpleGrid>
+            ) : (
+              <Text textAlign="center" color="gray.500" py={10}>
+                No courses found matching your criteria.
+              </Text>
+            )}
+          </VStack>
+        </Container>
+      </Box>
+      <Footer />
+    </Flex>
   );
 };
 
