@@ -1,0 +1,59 @@
+[
+  {
+    "model": "exams.exam",
+    "pk": 1,
+    "fields": {
+      "title": "Python Basics Assessment",
+      "description": "Test your knowledge of Python fundamentals including variables, data types, control flow, and functions.",
+      "exam_type": "quiz",
+      "duration": 60,
+      "total_marks": 100,
+      "passing_marks": 60,
+      "instructions": "Read each question carefully. Choose the best answer from the options provided.",
+      "is_proctored": false,
+      "is_published": true,
+      "start_time": null,
+      "end_time": null,
+      "created_at": "2024-03-15T10:00:00Z",
+      "updated_at": "2024-03-15T10:00:00Z"
+    }
+  },
+  {
+    "model": "exams.exam",
+    "pk": 2,
+    "fields": {
+      "title": "Django Framework Test",
+      "description": "Comprehensive test covering Django models, views, templates, forms, and authentication.",
+      "exam_type": "quiz",
+      "duration": 90,
+      "total_marks": 100,
+      "passing_marks": 70,
+      "instructions": "Answer all questions. Some questions may have multiple correct answers.",
+      "is_proctored": false,
+      "is_published": true,
+      "start_time": null,
+      "end_time": null,
+      "created_at": "2024-03-15T11:00:00Z",
+      "updated_at": "2024-03-15T11:00:00Z"
+    }
+  },
+  {
+    "model": "exams.exam",
+    "pk": 3,
+    "fields": {
+      "title": "Data Science Concepts",
+      "description": "Test your understanding of basic data science concepts, statistical methods, and data analysis.",
+      "exam_type": "quiz",
+      "duration": 75,
+      "total_marks": 100,
+      "passing_marks": 65,
+      "instructions": "Use the provided datasets to answer questions. Show your work where required.",
+      "is_proctored": false,
+      "is_published": true,
+      "start_time": null,
+      "end_time": null,
+      "created_at": "2024-03-15T12:00:00Z",
+      "updated_at": "2024-03-15T12:00:00Z"
+    }
+  }
+] 

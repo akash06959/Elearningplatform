@@ -1,0 +1,53 @@
+[
+  {
+    "model": "courses.course",
+    "pk": 1,
+    "fields": {
+      "title": "Introduction to Python Programming",
+      "description": "Learn the basics of Python programming language. Perfect for beginners!",
+      "instructor": 1,
+      "thumbnail": "",
+      "cover_image": "",
+      "price": "29.99",
+      "duration_in_weeks": 4,
+      "difficulty": "beginner",
+      "is_published": true,
+      "created_at": "2024-03-15T10:00:00Z",
+      "updated_at": "2024-03-15T10:00:00Z"
+    }
+  },
+  {
+    "model": "courses.course",
+    "pk": 2,
+    "fields": {
+      "title": "Web Development with Django",
+      "description": "Master web development using Django framework. Build real-world applications!",
+      "instructor": 1,
+      "thumbnail": "",
+      "cover_image": "",
+      "price": "49.99",
+      "duration_in_weeks": 8,
+      "difficulty": "intermediate",
+      "is_published": true,
+      "created_at": "2024-03-15T11:00:00Z",
+      "updated_at": "2024-03-15T11:00:00Z"
+    }
+  },
+  {
+    "model": "courses.course",
+    "pk": 3,
+    "fields": {
+      "title": "Data Science Fundamentals",
+      "description": "Learn the basics of data science, including statistics, pandas, and data visualization.",
+      "instructor": 1,
+      "thumbnail": "",
+      "cover_image": "",
+      "price": "39.99",
+      "duration_in_weeks": 6,
+      "difficulty": "intermediate",
+      "is_published": true,
+      "created_at": "2024-03-15T12:00:00Z",
+      "updated_at": "2024-03-15T12:00:00Z"
+    }
+  }
+] 
