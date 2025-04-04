@@ -28,10 +28,9 @@ import CourseCard from '../courses/CourseCard';
 import Navbar from '../shared/Navbar';
 import Footer from '../shared/Footer';
 
-const CategoryButton = ({ icon, text, href, ...props }) => (
+const CategoryButton = ({ icon, text, onClick, ...props }) => (
     <Button
-        as={Link}
-        to={href}
+        onClick={onClick}
         leftIcon={<Icon as={icon} />}
         variant="outline"
         size="lg"
@@ -98,13 +97,32 @@ const StudentDashboard = () => {
                 const recommended = availableCourses
                     .sort(() => Math.random() - 0.5)
                     .slice(0, 3); // Get up to 3 random courses
+
                 console.log('Selected recommended courses:', recommended);
 
-                // Set the courses state
+                // Process course data to ensure all required fields are present
+                const processCourse = (course) => ({
+                    id: course.id,
+                    title: course.title || 'Untitled Course',
+                    description: course.description || 'No description available',
+                    thumbnail: course.thumbnail || course.thumbnail_url || null,
+                    instructor: {
+                        name: course.instructor?.name || course.instructor?.username || 
+                              (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
+                        username: course.instructor?.username || 'unknown'
+                    },
+                    rating: parseFloat(course.rating || course.avg_rating || 0),
+                    total_students: parseInt(course.total_students || 0),
+                    difficulty_level: course.difficulty_level || 'All Levels',
+                    duration: course.duration_in_weeks ? `${course.duration_in_weeks} weeks` : 'Self-paced',
+                    institution: course.institution || 'Featured Institution'
+                });
+
+                // Set the courses state with processed data
                 setCourses({
-                    recentlyAdded: Array.isArray(recentlyAdded) ? recentlyAdded : [],
-                    enrolled: Array.isArray(enrolled) ? enrolled : [],
-                    recommended: Array.isArray(recommended) ? recommended : []
+                    recentlyAdded: Array.isArray(recentlyAdded) ? recentlyAdded.map(processCourse) : [],
+                    enrolled: Array.isArray(enrolled) ? enrolled.map(processCourse) : [],
+                    recommended: Array.isArray(recommended) ? recommended.map(processCourse) : []
                 });
             } catch (err) {
                 console.error('Error in fetchCourses:', err);
@@ -122,6 +140,10 @@ const StudentDashboard = () => {
         if (searchQuery.trim()) {
             navigate(`/courses?search=${encodeURIComponent(searchQuery.trim())}`);
         }
+    };
+
+    const handleCategoryClick = (category) => {
+        navigate(`/courses?category=${encodeURIComponent(category)}`);
     };
 
     if (loading) {
@@ -188,25 +210,25 @@ const StudentDashboard = () => {
                                 <CategoryButton
                                     icon={FaGraduationCap}
                                     text="Free Certificates"
-                                    href="/courses/certificates"
+                                    onClick={() => handleCategoryClick('certificates')}
                                     colorScheme="blue"
                                 />
                                 <CategoryButton
                                     icon={FaLaptop}
                                     text="Computer Science"
-                                    href="/courses/cs"
+                                    onClick={() => handleCategoryClick('computer-science')}
                                     colorScheme="teal"
                                 />
                                 <CategoryButton
                                     icon={FaBrain}
                                     text="Personal Development"
-                                    href="/courses/development"
+                                    onClick={() => handleCategoryClick('personal-development')}
                                     colorScheme="purple"
                                 />
                                 <CategoryButton
                                     icon={FaBusinessTime}
                                     text="Business"
-                                    href="/courses/business"
+                                    onClick={() => handleCategoryClick('business')}
                                     colorScheme="orange"
                                 />
                             </SimpleGrid>

@@ -30,6 +30,20 @@ const CourseCard = ({ course }) => {
         description,
     } = course;
 
+    const BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:8000';
+    const defaultImageUrl = 'https://placehold.co/600x400';
+
+    const getThumbnailUrl = (thumbnailPath) => {
+        if (!thumbnailPath) return defaultImageUrl;
+        if (thumbnailPath.startsWith('http')) return thumbnailPath;
+        return `${BASE_URL}${thumbnailPath}`;
+    };
+
+    console.log('Course thumbnail:', {
+        original: thumbnail,
+        processed: getThumbnailUrl(thumbnail)
+    });
+
     return (
         <LinkBox
             as="article"
@@ -41,13 +55,27 @@ const CourseCard = ({ course }) => {
             bg={useColorModeValue('white', 'gray.700')}
             transition="all 0.2s"
         >
-            <Image
-                src={thumbnail || '/default-course-image.jpg'}
-                alt={title}
-                height="200px"
-                width="100%"
-                objectFit="cover"
-            />
+            <Box position="relative" height="200px">
+                <Image
+                    src={getThumbnailUrl(thumbnail)}
+                    alt={title}
+                    width="100%"
+                    height="100%"
+                    objectFit="cover"
+                    fallback={
+                        <Box 
+                            height="100%" 
+                            width="100%" 
+                            bg="gray.100" 
+                            display="flex" 
+                            alignItems="center" 
+                            justifyContent="center"
+                        >
+                            <Icon as={FaGraduationCap} boxSize="40px" color="gray.300" />
+                        </Box>
+                    }
+                />
+            </Box>
 
             <Box p={6}>
                 <Stack spacing={3}>
@@ -68,49 +96,49 @@ const CourseCard = ({ course }) => {
                         {description}
                     </Text>
 
-                    {/* Instructor */}
-                    <HStack spacing={2}>
-                        <Icon as={FaUser} color="gray.500" />
-                        <Text color="gray.600" fontSize="sm">
-                            {instructor?.name || instructor?.username || 'Unknown Instructor'}
-                        </Text>
-                    </HStack>
-
-                    {/* Course Info */}
-                    <HStack spacing={4} wrap="wrap">
-                        {difficulty_level && (
-                            <HStack>
-                                <Icon as={FaGraduationCap} color="gray.500" />
-                                <Text fontSize="sm" color="gray.600">
-                                    {difficulty_level}
-                                </Text>
-                            </HStack>
-                        )}
-                        
-                        {duration && (
-                            <HStack>
-                                <Icon as={FaClock} color="gray.500" />
-                                <Text fontSize="sm" color="gray.600">
-                                    {duration}
-                                </Text>
-                            </HStack>
-                        )}
-                    </HStack>
-
-                    {/* Rating and Students */}
-                    <HStack justify="space-between" mt={2}>
-                        {rating && (
-                            <HStack>
-                                <StarIcon color="yellow.400" />
-                                <Text fontWeight="bold">{rating}</Text>
-                            </HStack>
-                        )}
-                        {total_students && (
-                            <Text fontSize="sm" color="gray.600">
-                                {total_students.toLocaleString()} students
+                    {/* Course Meta */}
+                    <HStack spacing={4} mt={2}>
+                        <HStack>
+                            <Icon as={FaUser} color="gray.500" />
+                            <Text fontSize="sm" color="gray.500">
+                                {instructor?.name || instructor?.username || 'Unknown Instructor'}
                             </Text>
-                        )}
+                        </HStack>
+                        <HStack>
+                            <Icon as={FaClock} color="gray.500" />
+                            <Text fontSize="sm" color="gray.500">
+                                {duration || 'Self-paced'}
+                            </Text>
+                        </HStack>
                     </HStack>
+
+                    {/* Course Stats */}
+                    <HStack spacing={4} mt={2}>
+                        <HStack>
+                            <Icon as={FaGraduationCap} color="gray.500" />
+                            <Text fontSize="sm" color="gray.500">
+                                {total_students || 0} students
+                            </Text>
+                        </HStack>
+                        <HStack>
+                            <StarIcon color="yellow.400" />
+                            <Text fontSize="sm" color="gray.500">
+                                {rating?.toFixed(1) || 'No ratings'}
+                            </Text>
+                        </HStack>
+                    </HStack>
+
+                    {/* Difficulty Level */}
+                    <Badge 
+                        colorScheme={
+                            difficulty_level?.toLowerCase() === 'beginner' ? 'green' :
+                            difficulty_level?.toLowerCase() === 'intermediate' ? 'yellow' :
+                            difficulty_level?.toLowerCase() === 'advanced' ? 'red' : 'gray'
+                        }
+                        alignSelf="start"
+                    >
+                        {difficulty_level || 'All Levels'}
+                    </Badge>
                 </Stack>
             </Box>
         </LinkBox>

@@ -87,12 +87,6 @@ function CourseLearning() {
         setError(null);
         
         // Check if user is enrolled
-        const token = localStorage.getItem('accessToken');
-        if (!token) {
-          navigate('/login');
-          return;
-        }
-
         try {
           const enrollmentData = await enrollmentAPI.checkEnrollment(courseId);
           if (!enrollmentData?.enrolled) {

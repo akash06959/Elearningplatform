@@ -29,6 +29,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.pagination import PageNumberPagination
 from django.http import Http404
+from django.contrib.auth import get_user_model
 
 class CourseListView(ListView):
     model = Course
@@ -717,11 +718,22 @@ class EnrolledCoursesAPIView(generics.ListAPIView):
 
 class CourseListAPIView(generics.ListAPIView):
     serializer_class = CourseSerializer
-    permission_classes = [AllowAny]  # Allow unauthenticated users to view courses
-    pagination_class = PageNumberPagination
+    permission_classes = [AllowAny]
+    pagination_class = None
 
     def get_queryset(self):
-        queryset = Course.objects.filter(is_published=True)
+        print("\n=== CourseListAPIView.get_queryset ===")
+        queryset = Course.objects.filter(is_published=True).select_related(
+            'instructor',
+            'category'
+        ).prefetch_related(
+            'modules',
+            'modules__sections',
+            'modules__sections__lessons',
+            'enrollments'
+        ).order_by('-created_at')
+        
+        print(f"Found {queryset.count()} published courses")
         
         # Apply filters
         category = self.request.query_params.get('category', None)
@@ -745,29 +757,29 @@ class CourseListAPIView(generics.ListAPIView):
         if price_max is not None:
             queryset = queryset.filter(price__lte=float(price_max))
         
-        return queryset.order_by('-created_at')
+        print(f"After applying filters: {queryset.count()} courses")
+        return queryset
 
     def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-        
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            response = self.get_paginated_response(serializer.data)
-            response.data['filters'] = {
-                'categories': list(Category.objects.values('id', 'name')),
-                'difficulties': [choice[0] for choice in Course.DIFFICULTY_CHOICES]
-            }
-            return response
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'results': serializer.data,
-            'filters': {
-                'categories': list(Category.objects.values('id', 'name')),
-                'difficulties': [choice[0] for choice in Course.DIFFICULTY_CHOICES]
-            }
-        })
+        try:
+            print("\n=== CourseListAPIView.list ===")
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            
+            # Return the serialized data directly as a list
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            print(f"Error in CourseListAPIView.list: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {
+                    'error': 'Failed to fetch courses',
+                    'message': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class CreateCourseAPIView(generics.CreateAPIView):
     """API endpoint to create a new course"""
@@ -1204,3 +1216,112 @@ def course_progress(request, course_id):
         "completed_lessons": completed_lessons,
         "progress_percentage": round(progress_percentage, 2)
     })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_enrolled_students(request):
+    """Get all students enrolled in the instructor's courses"""
+    if request.user.user_type != 'instructor':
+        return Response(
+            {'message': 'Only instructors can access this endpoint'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    try:
+        # Get all courses by the instructor
+        courses = Course.objects.filter(instructor=request.user)
+        
+        # Get unique students enrolled in any of the instructor's courses
+        students = get_user_model().objects.filter(
+            enrollments__course__in=courses,
+            enrollments__status='active'
+        ).distinct().annotate(
+            enrolled_courses=Count('enrollments', filter=models.Q(enrollments__status='active'))
+        )
+
+        student_data = [{
+            'id': student.id,
+            'name': student.get_full_name() or student.username,
+            'email': student.email,
+            'enrolled_courses': list(student.enrollments.filter(
+                status='active',
+                course__in=courses
+            ).values_list('course__title', flat=True))
+        } for student in students]
+
+        return Response(student_data)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_course_enrollments(request):
+    """Get all enrollments for the instructor's courses"""
+    if request.user.user_type != 'instructor':
+        return Response(
+            {'message': 'Only instructors can access this endpoint'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    try:
+        # Get all enrollments for the instructor's courses
+        enrollments = Enrollment.objects.filter(
+            course__instructor=request.user,
+            status='active'
+        ).select_related('user', 'course')
+
+        enrollment_data = [{
+            'id': enrollment.id,
+            'student_name': enrollment.user.get_full_name() or enrollment.user.username,
+            'course_title': enrollment.course.title,
+            'enrolled_at': enrollment.enrolled_at,
+            'progress_percentage': enrollment.progress_percentage
+        } for enrollment in enrollments]
+
+        return Response(enrollment_data)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def remove_student(request, student_id):
+    """Remove a student from all of the instructor's courses"""
+    if request.user.user_type != 'instructor':
+        return Response(
+            {'message': 'Only instructors can remove students'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    try:
+        # Get the student
+        student = get_user_model().objects.get(id=student_id)
+        
+        # Get all enrollments for this student in the instructor's courses
+        enrollments = Enrollment.objects.filter(
+            user=student,
+            course__instructor=request.user,
+            status='active'
+        )
+        
+        # Update the status to 'dropped' instead of actually deleting
+        enrollments.update(status='dropped')
+
+        return Response({
+            'message': f'Successfully removed student from {enrollments.count()} courses'
+        })
+    except get_user_model().DoesNotExist:
+        return Response(
+            {'error': 'Student not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

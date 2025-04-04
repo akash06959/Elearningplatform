@@ -1,6 +1,14 @@
 import axios from 'axios';
 
 const BASE_URL = 'http://localhost:8000/api';
+const MEDIA_URL = 'http://localhost:8000';
+
+// Helper function to process image URLs
+const processImageUrl = (url) => {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  return `${MEDIA_URL}${url}`;
+};
 
 // Create axios instance with default config
 const api = axios.create({
@@ -20,8 +28,9 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${tokens.access}`;
       }
     }
+    // Log the full URL being requested
     console.log('Making request:', {
-      url: config.url,
+      fullUrl: `${BASE_URL}${config.url}`,
       method: config.method,
       headers: config.headers,
       authTokens: !!authTokens
@@ -81,8 +90,8 @@ api.interceptors.response.use(
         }
       } else {
         // No auth tokens found
-        window.location.href = '/login';
-        return Promise.reject(new Error('Please log in to continue'));
+      window.location.href = '/login';
+      return Promise.reject(new Error('Please log in to continue'));
       }
     }
     
@@ -96,6 +105,22 @@ api.interceptors.response.use(
     return Promise.reject(new Error(errorMessage));
   }
 );
+
+// Helper function to handle API errors
+const handleApiError = (error) => {
+  if (!error.response) {
+    // Network error
+    return new Error('Network error. Please check your connection and try again.');
+  }
+  
+  // Get the error message from the response
+  const errorMessage = error.response?.data?.message || 
+                      error.response?.data?.detail || 
+                      error.message || 
+                      'An unexpected error occurred';
+                      
+  return new Error(errorMessage);
+};
 
 // Course-related API calls
 export const courseAPI = {
@@ -168,7 +193,20 @@ export const courseAPI = {
       
       const response = await api.get(`/courses/${courseId}/`);
       console.log('Course details raw response:', response);
-      return response;
+
+      // Process image URLs in the course data
+      const processedResponse = {
+        ...response,
+        thumbnail: processImageUrl(response.thumbnail),
+        cover_image: processImageUrl(response.cover_image),
+        instructor: response.instructor ? {
+          ...response.instructor,
+          avatar: processImageUrl(response.instructor.avatar)
+        } : null
+      };
+
+      console.log('Processed course details:', processedResponse);
+      return processedResponse;
     } catch (error) {
       console.error('Error in getCourseById:', error);
       throw error;
@@ -179,26 +217,31 @@ export const courseAPI = {
   getCourses: async () => {
     try {
       console.log('\n=== Getting All Courses ===');
-      const response = await api.get('/courses/courses/');
+      const response = await api.get('/courses/');
       console.log('Raw API response:', response);
       
       let courses = [];
       if (Array.isArray(response)) {
         courses = response;
-      } else if (response?.courses) {
-        courses = response.courses;
+      } else if (response?.data) {
+        courses = response.data;
       } else if (response?.results) {
         courses = response.results;
+      } else if (response?.courses) {
+        courses = response.courses;
       }
+
+      // Process image URLs in the courses
+      courses = courses.map(course => ({
+        ...course,
+        thumbnail: processImageUrl(course.thumbnail),
+        cover_image: processImageUrl(course.cover_image)
+      }));
       
       console.log('Processed courses:', courses);
       return courses.filter(course => course?.is_published);
     } catch (error) {
-      console.error('Error in getCourses:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
+      console.error('Error in getCourses:', error);
       return [];
     }
   },
@@ -234,18 +277,32 @@ export const courseAPI = {
   // Check enrollment status
   checkEnrollmentStatus: async (courseId) => {
     try {
-      const response = await api.get(`/courses/${courseId}/enrollment-status/`);
-      return response;
+      console.log('Checking enrollment status for course:', courseId);
+      const response = await api.get(`/enrollments/api/courses/${courseId}/check-enrollment/`);
+      console.log('Enrollment status response:', response);
+      
+      // Handle different response formats
+      const isEnrolled = response?.is_enrolled || response?.enrolled || false;
+      console.log('Processed enrollment status:', { isEnrolled });
+      
+      return {
+        is_enrolled: isEnrolled,
+        enrolled: isEnrolled // For backward compatibility
+      };
     } catch (error) {
-      console.error('Error checking enrollment status:', error);
-      throw error;
+      console.error('Error checking enrollment status:', {
+        courseId,
+        error: error.message,
+        response: error.response?.data
+      });
+      return { is_enrolled: false, enrolled: false };
     }
   },
 
   // Enroll in a course
   enrollInCourse: async (courseId) => {
     try {
-      const response = await api.post(`/courses/${courseId}/enroll/`);
+      const response = await api.post(`/enrollments/api/courses/${courseId}/enroll/`);
       return response;
     } catch (error) {
       console.error('Error enrolling in course:', error);
@@ -267,28 +324,52 @@ export const courseAPI = {
   // Get recently added courses
   getRecentCourses: async () => {
     try {
-      console.log('Fetching recent courses...');
-      const response = await api.get('/courses/');
+      console.log('\n=== Getting Recent Courses ===');
+      const response = await api.get('/courses/');  // Use the base courses endpoint
       console.log('GetRecentCourses Raw Response:', response);
       
       let courses = [];
       if (Array.isArray(response)) {
         courses = response;
-      } else if (response?.courses) {
-        courses = response.courses;
+      } else if (response?.data) {
+        courses = response.data;
       } else if (response?.results) {
         courses = response.results;
+      } else if (response?.courses) {
+        courses = response.courses;
       }
       
-      console.log('Processed recent courses:', courses);
-      // Sort by created_at in descending order and limit to recent courses
-      return courses
-        .filter(course => course?.is_published)
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-        .slice(0, 5); // Show only 5 most recent courses
+      if (!Array.isArray(courses)) {
+        console.error('Invalid courses data:', courses);
+        return [];
+      }
+      
+      console.log('Processed courses before filtering:', courses);
+      
+      // Filter published courses and sort by creation date
+      const recentCourses = courses
+        .filter(course => 
+          course && 
+          course.is_published && 
+          (course.created_at || course.created || course.date_created)
+        )
+        .sort((a, b) => {
+          const dateA = new Date(a.created_at || a.created || a.date_created);
+          const dateB = new Date(b.created_at || b.created || b.date_created);
+          return dateB - dateA;
+        })
+        .slice(0, 3);  // Get only the 3 most recent courses
+      
+      console.log('Final recent courses:', recentCourses);
+      return recentCourses;
     } catch (error) {
-      console.error('Error in getRecentCourses:', error);
-      return [];
+      console.error('Error in getRecentCourses:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      });
+      return [];  // Return empty array instead of throwing
     }
   },
 
@@ -360,37 +441,61 @@ export const courseAPI = {
   // Get all published courses (for students)
   getAllCourses: async () => {
     try {
-      console.log('Fetching all courses...');
-      const response = await api.get('/courses/');
+      console.log('\n=== Getting All Published Courses ===');
+      const response = await api.get('/courses/list/');
       console.log('Raw API response:', response);
       
       // Handle different response formats
       let courses = [];
       if (Array.isArray(response)) {
         courses = response;
-      } else if (response?.courses && Array.isArray(response.courses)) {
-        courses = response.courses;
-      } else if (response?.results && Array.isArray(response.results)) {
-        courses = response.results;
       } else if (response?.data && Array.isArray(response.data)) {
         courses = response.data;
+      } else if (response?.results && Array.isArray(response.results)) {
+        courses = response.results;
+      } else {
+        console.error('Unexpected response format:', response);
+        return [];
       }
       
-      console.log('Processed courses:', courses);
+      console.log('All courses before processing:', courses);
       
-      // Filter only published courses
-      const publishedCourses = courses.filter(course => course.is_published);
-      console.log('Published courses:', publishedCourses);
+      // Process and validate each course
+      const processedCourses = courses
+        .filter(course => course && course.id && course.title)
+        .map(course => ({
+          id: course.id,
+          title: course.title,
+          description: course.description || 'No description available',
+          thumbnail: course.thumbnail_url || course.thumbnail || null,
+          cover_image: course.cover_image_url || course.cover_image || null,
+          instructor: {
+            name: course.instructor?.name || course.instructor?.username || 
+                  (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
+            username: course.instructor?.username || 
+                     (typeof course.instructor === 'string' ? course.instructor : 'Unknown')
+          },
+          category: typeof course.category === 'object' ? 
+                   course.category?.name || 'Uncategorized' : 
+                   course.category || 'Uncategorized',
+          difficulty: course.difficulty || 'Not specified',
+          duration_in_weeks: course.duration_in_weeks || 'N/A',
+          price: parseFloat(course.price || 0),
+          total_students: parseInt(course.total_students || 0),
+          rating: parseFloat(course.rating || 0),
+          is_published: true
+        }));
       
-      return publishedCourses;
+      console.log('Final processed courses:', processedCourses);
+      return processedCourses;
     } catch (error) {
-      console.error('Error in getAllCourses:', error);
-      console.error('Error details:', {
+      console.error('Error in getAllCourses:', {
         message: error.message,
         response: error.response?.data,
-        status: error.response?.status
+        status: error.response?.status,
+        stack: error.stack
       });
-      throw new Error(error.response?.data?.message || 'Failed to fetch courses');
+      return [];
     }
   },
 
@@ -438,6 +543,63 @@ export const courseAPI = {
       throw new Error(error.response?.data?.message || 'Failed to mark lesson as complete');
     }
   },
+
+  getEnrolledStudents: async () => {
+    try {
+      const response = await api.get('/courses/instructor/enrolled-students/');
+      console.log('Enrolled students raw response:', response);
+      
+      // Handle different response formats
+      let students = [];
+      if (Array.isArray(response)) {
+        students = response;
+      } else if (response?.data) {
+        students = response.data;
+      } else if (response?.students) {
+        students = response.students;
+      }
+      
+      console.log('Processed enrolled students:', students);
+      return students;
+    } catch (error) {
+      console.error('Error fetching enrolled students:', error);
+      throw handleApiError(error);
+    }
+  },
+
+  getCourseEnrollments: async () => {
+    try {
+      const response = await api.get('/courses/instructor/enrollments/');
+      console.log('Course enrollments raw response:', response);
+      
+      // Handle different response formats
+      let enrollments = [];
+      if (Array.isArray(response)) {
+        enrollments = response;
+      } else if (response?.data) {
+        enrollments = response.data;
+      } else if (response?.enrollments) {
+        enrollments = response.enrollments;
+      }
+      
+      console.log('Processed course enrollments:', enrollments);
+      return enrollments;
+    } catch (error) {
+      console.error('Error fetching course enrollments:', error);
+      throw handleApiError(error);
+    }
+  },
+
+  removeStudent: async (studentId) => {
+    try {
+      const response = await api.delete(`/courses/instructor/remove-student/${studentId}/`);
+      console.log('Remove student raw response:', response);
+      return response;
+    } catch (error) {
+      console.error('Error removing student:', error);
+      throw handleApiError(error);
+    }
+  }
 };
 
 // Enrollment-related API calls
@@ -585,7 +747,7 @@ export const authAPI = {
         token,
         new_password: newPassword
       });
-      return response;
+    return response;
     } catch (error) {
       console.error('Error in resetPassword:', error);
       throw error;
