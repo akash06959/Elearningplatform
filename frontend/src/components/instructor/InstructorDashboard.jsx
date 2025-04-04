@@ -1,7 +1,9 @@
 import React, { useState, useContext, useEffect } from 'react';
 import {
     Box,
-    Container,
+    Flex,
+    Icon,
+    Text,
     Heading,
     SimpleGrid,
     Stat,
@@ -10,36 +12,190 @@ import {
     StatHelpText,
     VStack,
     HStack,
-    Text,
-    Button,
     useColorModeValue,
-    Icon,
-    useToast,
-    Spinner,
-    Alert,
-    AlertIcon,
-    AlertTitle,
-    AlertDescription,
-    Modal,
-    ModalOverlay,
-    ModalContent,
-    ModalHeader,
-    ModalBody,
-    ModalCloseButton,
+    IconButton,
+    Avatar,
+    Menu,
+    MenuButton,
+    MenuList,
+    MenuItem,
+    Drawer,
+    DrawerContent,
+    useDisclosure,
     Table,
     Thead,
     Tbody,
     Tr,
     Th,
     Td,
-    useDisclosure,
+    Badge,
+    Button,
 } from '@chakra-ui/react';
-import { Link } from 'react-router-dom';
-import { FaChalkboardTeacher, FaUsers, FaBook, FaChartLine, FaTrash } from 'react-icons/fa';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+    FiMenu,
+    FiHome,
+    FiBook,
+    FiUsers,
+    FiDollarSign,
+    FiBarChart,
+    FiSettings,
+    FiBell,
+    FiX,
+} from 'react-icons/fi';
 import { AuthContext } from '../../contexts/AuthContext';
 import { courseAPI } from '../../services/api';
 
-const StatCard = ({ title, value, icon, helpText, onClick }) => {
+const SidebarContent = ({ onClose, ...rest }) => {
+    const navigate = useNavigate();
+    
+    const NavItem = ({ icon, children, path, ...props }) => {
+        const color = useColorModeValue('gray.600', 'gray.300');
+        const hoverBg = useColorModeValue('blue.50', 'blue.800');
+        const hoverColor = useColorModeValue('blue.600', 'blue.200');
+        
+        return (
+            <Flex
+                align="center"
+                px="4"
+                py="3"
+                cursor="pointer"
+                role="group"
+                fontWeight="semibold"
+                transition=".15s ease"
+                color={color}
+                _hover={{
+                    bg: hoverBg,
+                    color: hoverColor,
+                }}
+                onClick={() => {
+                    navigate(path);
+                    if (onClose) onClose();
+                }}
+                {...props}
+            >
+                {icon && (
+                    <Icon
+                        mr="4"
+                        fontSize="16"
+                        _groupHover={{
+                            color: hoverColor,
+                        }}
+                        as={icon}
+                    />
+                )}
+                {children}
+            </Flex>
+        );
+    };
+
+    const bgColor = useColorModeValue('white', 'gray.900');
+    const borderColor = useColorModeValue('gray.200', 'gray.700');
+
+    return (
+        <Box
+            bg={bgColor}
+            borderRight="1px"
+            borderRightColor={borderColor}
+            w={{ base: 'full', md: 60 }}
+            pos="fixed"
+            h="full"
+            {...rest}
+        >
+            <Flex h="20" alignItems="center" mx="8" justifyContent="space-between">
+                <Text fontSize="2xl" fontWeight="bold">
+                    Instructor
+                </Text>
+                <IconButton
+                    display={{ base: 'flex', md: 'none' }}
+                    onClick={onClose}
+                    variant="outline"
+                    aria-label="close menu"
+                    icon={<FiX />}
+                />
+            </Flex>
+
+            <VStack spacing={0} align="stretch">
+                <NavItem icon={FiHome} path="/inst_dashboard">
+                    Dashboard
+                </NavItem>
+                <NavItem icon={FiBook} path="/instructor/courses">
+                    My Courses
+                </NavItem>
+                <NavItem icon={FiUsers} path="/instructor/students">
+                    Students
+                </NavItem>
+                <NavItem icon={FiBarChart} path="/instructor/analytics">
+                    Analytics
+                </NavItem>
+                <NavItem icon={FiDollarSign} path="/instructor/earnings">
+                    Earnings
+                </NavItem>
+                <NavItem icon={FiSettings} path="/instructor/settings">
+                    Settings
+                </NavItem>
+            </VStack>
+        </Box>
+    );
+};
+
+const Header = ({ onOpen, ...rest }) => {
+    const { user, logoutUser } = useContext(AuthContext);
+    const navigate = useNavigate();
+
+    return (
+        <Flex
+            ml={{ base: 0, md: 60 }}
+            px="4"
+            height="20"
+            alignItems="center"
+            bg={useColorModeValue('white', 'gray.900')}
+            borderBottomWidth="1px"
+            borderBottomColor={useColorModeValue('gray.200', 'gray.700')}
+            justifyContent="space-between"
+            {...rest}
+        >
+            <IconButton
+                display={{ base: 'flex', md: 'none' }}
+                onClick={onOpen}
+                variant="outline"
+                aria-label="open menu"
+                icon={<FiMenu />}
+            />
+
+            <Heading size="lg" display={{ base: 'none', md: 'flex' }}>
+                Dashboard
+            </Heading>
+
+            <HStack spacing={4}>
+                <IconButton
+                    icon={<FiBell />}
+                    variant="ghost"
+                    aria-label="notifications"
+                    onClick={() => navigate('/instructor/notifications')}
+                />
+                
+                <Menu>
+                    <MenuButton>
+                        <Avatar
+                            size="sm"
+                            name={user?.username}
+                            bg="blue.500"
+                            color="white"
+                        />
+                    </MenuButton>
+                    <MenuList>
+                        <MenuItem as={Link} to="/profile">Profile</MenuItem>
+                        <MenuItem as={Link} to="/instructor/settings">Settings</MenuItem>
+                        <MenuItem onClick={logoutUser}>Sign Out</MenuItem>
+                    </MenuList>
+                </Menu>
+            </HStack>
+        </Flex>
+    );
+};
+
+const StatCard = ({ title, value, icon, helpText }) => {
     const bgColor = useColorModeValue('white', 'gray.700');
     const textColor = useColorModeValue('gray.600', 'gray.200');
 
@@ -48,9 +204,7 @@ const StatCard = ({ title, value, icon, helpText, onClick }) => {
             p={6} 
             bg={bgColor} 
             borderRadius="lg" 
-            boxShadow="sm" 
-            cursor="pointer"
-            onClick={onClick}
+            boxShadow="sm"
             _hover={{ transform: 'translateY(-2px)', boxShadow: 'md' }}
             transition="all 0.2s"
         >
@@ -69,6 +223,7 @@ const StatCard = ({ title, value, icon, helpText, onClick }) => {
 };
 
 const InstructorDashboard = () => {
+    const { isOpen, onOpen, onClose } = useDisclosure();
     const [stats, setStats] = useState({
         totalCourses: 0,
         totalStudents: 0,
@@ -77,217 +232,13 @@ const InstructorDashboard = () => {
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const { user } = useContext(AuthContext);
     const bgColor = useColorModeValue('gray.50', 'gray.800');
-    const toast = useToast();
-
-    // Modal states
-    const [selectedView, setSelectedView] = useState(null);
-    const [detailData, setDetailData] = useState([]);
-    const { isOpen, onOpen, onClose } = useDisclosure();
-
-    // Fetch detailed data based on selection
-    const fetchDetailData = async (type) => {
-        try {
-            let data = [];
-            console.log('Fetching detail data for type:', type);
-            
-            switch (type) {
-                case 'courses':
-                    const courses = await courseAPI.getInstructorCourses();
-                    console.log('Fetched courses:', courses);
-                    data = courses.map(course => ({
-                        id: course.id,
-                        title: course.title,
-                        status: course.is_published ? 'Published' : 'Draft',
-                        students: course.total_students || 0
-                    }));
-                    break;
-                case 'students':
-                    console.log('Fetching enrolled students...');
-                    const students = await courseAPI.getEnrolledStudents();
-                    console.log('Fetched students:', students);
-                    data = students.map(student => ({
-                        id: student.id,
-                        name: student.name,
-                        email: student.email,
-                        enrolledCourses: student.enrolled_courses || []
-                    }));
-                    break;
-                case 'enrollments':
-                    console.log('Fetching course enrollments...');
-                    const enrollments = await courseAPI.getCourseEnrollments();
-                    console.log('Fetched enrollments:', enrollments);
-                    data = enrollments.map(enrollment => ({
-                        id: enrollment.id,
-                        student: enrollment.student_name,
-                        course: enrollment.course_title,
-                        date: new Date(enrollment.enrolled_at).toLocaleDateString()
-                    }));
-                    break;
-                default:
-                    break;
-            }
-            console.log('Processed data for type', type, ':', data);
-            setDetailData(data);
-        } catch (err) {
-            console.error('Error fetching detail data:', {
-                type: type,
-                error: err.message,
-                stack: err.stack,
-                response: err.response?.data
-            });
-            toast({
-                title: 'Error',
-                description: err.message || 'Failed to fetch detailed data',
-                status: 'error',
-                duration: 5000,
-                isClosable: true,
-            });
-        }
-    };
-
-    // Handle card clicks
-    const handleCardClick = async (type) => {
-        setSelectedView(type);
-        await fetchDetailData(type);
-        onOpen();
-    };
-
-    // Handle student removal
-    const handleRemoveStudent = async (studentId) => {
-        try {
-            await courseAPI.removeStudent(studentId);
-            await fetchDetailData('students');
-            toast({
-                title: 'Success',
-                description: 'Student removed successfully',
-                status: 'success',
-                duration: 3000,
-                isClosable: true,
-            });
-        } catch (err) {
-            toast({
-                title: 'Error',
-                description: 'Failed to remove student',
-                status: 'error',
-                duration: 5000,
-                isClosable: true,
-            });
-        }
-    };
-
-    // Modal content based on selection
-    const renderModalContent = () => {
-        switch (selectedView) {
-            case 'courses':
-                return (
-                    <>
-                        <ModalHeader>Your Courses</ModalHeader>
-                        <ModalBody>
-                            <Table variant="simple">
-                                <Thead>
-                                    <Tr>
-                                        <Th>Title</Th>
-                                        <Th>Status</Th>
-                                        <Th>Students</Th>
-                                    </Tr>
-                                </Thead>
-                                <Tbody>
-                                    {detailData.map(course => (
-                                        <Tr key={course.id}>
-                                            <Td>{course.title}</Td>
-                                            <Td>{course.status}</Td>
-                                            <Td>{course.students}</Td>
-                                        </Tr>
-                                    ))}
-                                </Tbody>
-                            </Table>
-                        </ModalBody>
-                    </>
-                );
-            case 'students':
-                return (
-                    <>
-                        <ModalHeader>Enrolled Students</ModalHeader>
-                        <ModalBody>
-                            <Table variant="simple">
-                                <Thead>
-                                    <Tr>
-                                        <Th>Name</Th>
-                                        <Th>Email</Th>
-                                        <Th>Enrolled Courses</Th>
-                                        <Th>Action</Th>
-                                    </Tr>
-                                </Thead>
-                                <Tbody>
-                                    {detailData.map(student => (
-                                        <Tr key={student.id}>
-                                            <Td>{student.name}</Td>
-                                            <Td>{student.email}</Td>
-                                            <Td>{student.enrolledCourses.length}</Td>
-                                            <Td>
-                                                <Button
-                                                    size="sm"
-                                                    colorScheme="red"
-                                                    leftIcon={<FaTrash />}
-                                                    onClick={() => handleRemoveStudent(student.id)}
-                                                >
-                                                    Remove
-                                                </Button>
-                                            </Td>
-                                        </Tr>
-                                    ))}
-                                </Tbody>
-                            </Table>
-                        </ModalBody>
-                    </>
-                );
-            case 'enrollments':
-                return (
-                    <>
-                        <ModalHeader>Course Enrollments</ModalHeader>
-                        <ModalBody>
-                            <Table variant="simple">
-                                <Thead>
-                                    <Tr>
-                                        <Th>Student</Th>
-                                        <Th>Course</Th>
-                                        <Th>Enrollment Date</Th>
-                                    </Tr>
-                                </Thead>
-                                <Tbody>
-                                    {detailData.map(enrollment => (
-                                        <Tr key={enrollment.id}>
-                                            <Td>{enrollment.student}</Td>
-                                            <Td>{enrollment.course}</Td>
-                                            <Td>{enrollment.date}</Td>
-                                        </Tr>
-                                    ))}
-                                </Tbody>
-                            </Table>
-                        </ModalBody>
-                    </>
-                );
-            default:
-                return null;
-        }
-    };
 
     useEffect(() => {
         const fetchStats = async () => {
             try {
                 setLoading(true);
-                setError(null);
-                console.log('Fetching instructor stats...');
-                console.log('Current user:', user);
-                
                 const courses = await courseAPI.getInstructorCourses();
-                console.log('Received courses:', courses);
-                
-                if (!Array.isArray(courses)) {
-                    throw new Error('Invalid response format from server');
-                }
                 
                 // Calculate stats from courses
                 const totalStudents = courses.reduce((acc, course) => acc + (course.total_students || 0), 0);
@@ -302,175 +253,113 @@ const InstructorDashboard = () => {
                 });
             } catch (err) {
                 console.error('Error fetching instructor stats:', err);
-                setError(err.message || 'Failed to fetch instructor statistics');
-                toast({
-                    title: 'Error',
-                    description: err.message || 'Failed to load dashboard statistics',
-                    status: 'error',
-                    duration: 5000,
-                    isClosable: true,
-                });
+                setError(err.message);
             } finally {
                 setLoading(false);
             }
         };
 
-        if (user?.role === 'instructor') {
-            fetchStats();
-        } else {
-            console.log('User is not an instructor:', user);
-            setError('Access denied. You must be an instructor to view this dashboard.');
-            setLoading(false);
-        }
-    }, [user, toast]);
-
-    if (loading) {
-        return (
-            <Box minH="100vh" bg={bgColor} py={8}>
-                <Container maxW="container.xl">
-                    <VStack spacing={4} align="center">
-                        <Spinner size="xl" color="blue.500" thickness="4px" />
-                        <Text fontSize="lg">Loading your dashboard...</Text>
-                    </VStack>
-                </Container>
-            </Box>
-        );
-    }
-
-    if (error) {
-        return (
-            <Box minH="100vh" bg={bgColor} py={8}>
-                <Container maxW="container.xl">
-                    <Alert
-                        status="error"
-                        variant="subtle"
-                        flexDirection="column"
-                        alignItems="center"
-                        justifyContent="center"
-                        textAlign="center"
-                        height="200px"
-                        borderRadius="lg"
-                    >
-                        <AlertIcon boxSize="40px" mr={0} />
-                        <AlertTitle mt={4} mb={1} fontSize="lg">
-                            Dashboard Error
-                        </AlertTitle>
-                        <AlertDescription maxWidth="sm">
-                            {error}
-                        </AlertDescription>
-                        <Button
-                            mt={4}
-                            colorScheme="red"
-                            onClick={() => window.location.reload()}
-                        >
-                            Try Again
-                        </Button>
-                    </Alert>
-                </Container>
-            </Box>
-        );
-    }
+        fetchStats();
+    }, []);
 
     return (
-        <Box bg={bgColor} minH="100vh" py={8}>
-            <Container maxW="container.xl">
-                <VStack spacing={8} align="stretch">
-                    {/* Welcome Section */}
-                    <Box>
-                        <Heading size="lg" mb={2}>
-                            Welcome back, {user?.username || 'Instructor'}!
-                        </Heading>
-                        <Text color="gray.600">
-                            Here's an overview of your teaching activity
-                        </Text>
-                    </Box>
+        <Box minH="100vh" bg={bgColor}>
+            <SidebarContent
+                onClose={onClose}
+                display={{ base: 'none', md: 'block' }}
+            />
+            <Drawer
+                isOpen={isOpen}
+                placement="left"
+                onClose={onClose}
+                returnFocusOnClose={false}
+                onOverlayClick={onClose}
+                size="full"
+            >
+                <DrawerContent>
+                    <SidebarContent onClose={onClose} />
+                </DrawerContent>
+            </Drawer>
 
-                    {/* Stats Grid */}
-                    <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
-                        <StatCard
-                            title="Total Courses"
-                            value={stats.totalCourses}
-                            icon={FaBook}
-                            helpText="Published and drafts"
-                            onClick={() => handleCardClick('courses')}
-                        />
-                        <StatCard
-                            title="Total Students"
-                            value={stats.totalStudents}
-                            icon={FaUsers}
-                            helpText="Across all courses"
-                            onClick={() => handleCardClick('students')}
-                        />
-                        <StatCard
-                            title="Active Enrollments"
-                            value={stats.activeEnrollments}
-                            icon={FaChalkboardTeacher}
-                            helpText="Currently learning"
-                            onClick={() => handleCardClick('enrollments')}
-                        />
-                        <StatCard
-                            title="Total Revenue"
-                            value={`$${stats.totalRevenue.toFixed(2)}`}
-                            icon={FaChartLine}
-                            helpText="All time earnings"
-                        />
-                    </SimpleGrid>
+            {/* Main content */}
+            <Box ml={{ base: 0, md: 60 }} p="4">
+                {/* Header */}
+                <Header onOpen={onOpen} />
 
-                    {/* Quick Actions */}
-                    <Box>
-                        <Heading size="md" mb={4}>
-                            Quick Actions
-                        </Heading>
-                        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-                            <Button
-                                as={Link}
-                                to="/instructor/create-course"
-                                colorScheme="blue"
-                                size="lg"
-                                leftIcon={<Icon as={FaBook} />}
-                            >
-                                Create New Course
-                            </Button>
-                            <Button
-                                as={Link}
-                                to="/instructor/courses"
-                                colorScheme="teal"
-                                size="lg"
-                                leftIcon={<Icon as={FaChalkboardTeacher} />}
-                            >
-                                Manage Courses
-                            </Button>
-                            <Button
-                                as={Link}
-                                to="/instructor/analytics"
-                                colorScheme="purple"
-                                size="lg"
-                                leftIcon={<Icon as={FaChartLine} />}
-                            >
-                                View Analytics
-                            </Button>
-                            <Button
-                                as={Link}
-                                to="/instructor/students"
-                                colorScheme="orange"
-                                size="lg"
-                                leftIcon={<Icon as={FaUsers} />}
-                            >
-                                Student Overview
-                            </Button>
+                {/* Dashboard content */}
+                <Box pt={8}>
+                    <VStack spacing={8} align="stretch">
+                        {/* Stats Grid */}
+                        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
+                            <StatCard
+                                title="Total Courses"
+                                value={stats.totalCourses}
+                                icon={FiBook}
+                                helpText="Published and drafts"
+                            />
+                            <StatCard
+                                title="Total Students"
+                                value={stats.totalStudents}
+                                icon={FiUsers}
+                                helpText="Across all courses"
+                            />
+                            <StatCard
+                                title="Active Enrollments"
+                                value={stats.activeEnrollments}
+                                icon={FiBarChart}
+                                helpText="Currently learning"
+                            />
+                            <StatCard
+                                title="Total Revenue"
+                                value={`$${stats.totalRevenue.toFixed(2)}`}
+                                icon={FiDollarSign}
+                                helpText="All time earnings"
+                            />
                         </SimpleGrid>
-                    </Box>
-                </VStack>
 
-                {/* Detail Modal */}
-                <Modal isOpen={isOpen} onClose={onClose} size="xl">
-                    <ModalOverlay />
-                    <ModalContent>
-                        <ModalCloseButton />
-                        {renderModalContent()}
-                    </ModalContent>
-                </Modal>
-            </Container>
+                        {/* Quick Actions */}
+                        <Box>
+                            <Heading size="md" mb={4}>
+                                Quick Actions
+                            </Heading>
+                            <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+                                <Button
+                                    as={Link}
+                                    to="/instructor/create-course"
+                                    colorScheme="blue"
+                                    leftIcon={<Icon as={FiBook} />}
+                                >
+                                    Create New Course
+                                </Button>
+                                <Button
+                                    as={Link}
+                                    to="/instructor/courses"
+                                    colorScheme="teal"
+                                    leftIcon={<Icon as={FiBook} />}
+                                >
+                                    Manage Courses
+                                </Button>
+                                <Button
+                                    as={Link}
+                                    to="/instructor/analytics"
+                                    colorScheme="purple"
+                                    leftIcon={<Icon as={FiBarChart} />}
+                                >
+                                    View Analytics
+                                </Button>
+                                <Button
+                                    as={Link}
+                                    to="/instructor/students"
+                                    colorScheme="orange"
+                                    leftIcon={<Icon as={FiUsers} />}
+                                >
+                                    Student Overview
+                                </Button>
+                            </SimpleGrid>
+                        </Box>
+                    </VStack>
+                </Box>
+            </Box>
         </Box>
     );
 };
