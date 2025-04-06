@@ -140,6 +140,10 @@ class Section(models.Model):
     ], default='video')
     video_url = models.URLField(max_length=500, blank=True, null=True)
     pdf_url = models.URLField(max_length=500, blank=True, null=True)
+    
+    # Add field for storing PDF files directly
+    pdf_file = models.FileField(upload_to='course_pdfs/', blank=True, null=True)
+    video_id = models.CharField(max_length=100, blank=True, null=True, help_text="YouTube video ID for embedding")
 
     class Meta:
         ordering = ['order']
@@ -147,6 +151,13 @@ class Section(models.Model):
     
     def __str__(self):
         return f"{self.module.course.title} - {self.title}" if self.module else self.title
+        
+    def save(self, *args, **kwargs):
+        # If a new PDF file is uploaded, update the pdf_url to point to it
+        if self.pdf_file and not self.pdf_url:
+            self.pdf_url = self.pdf_file.url if self.pdf_file else None
+            
+        super().save(*args, **kwargs)
 
 class Lesson(models.Model):
     CONTENT_TYPES = (

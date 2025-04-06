@@ -98,19 +98,25 @@ const StudentDashboard = () => {
                     enrolled: enrolledCoursesData || [],
                     recommended: recommendedCoursesData || []
                 });
+                
+                // Clear any previous errors
+                setError(null);
             } catch (enrollmentError) {
                 console.error('Error fetching enrolled courses:', enrollmentError);
                 // If enrolled courses fail, still show other sections
                 setCourses(prev => ({
                     ...prev,
+                    recentlyAdded: recentCourses || [],
                     enrolled: [],
                     recommended: allCourses
                         .sort(() => Math.random() - 0.5)
                         .slice(0, 3) || []
                 }));
+                
+                // Show a warning toast but don't set error state since we have partial data
                 toast({
-                    title: 'Error fetching enrolled courses',
-                    description: 'Unable to load your enrolled courses. Please try again later.',
+                    title: 'Some content could not be loaded',
+                    description: 'We could not load your enrolled courses. Other courses are still available.',
                     status: 'warning',
                     duration: 5000,
                     isClosable: true,
@@ -119,14 +125,18 @@ const StudentDashboard = () => {
 
         } catch (error) {
             console.error('Error fetching courses:', error);
-            setError(error.message || 'An error occurred while fetching courses');
+            setError(error.message || 'Failed to load courses. Please try again later.');
+            
+            // Show error toast
             toast({
-                title: 'Error fetching courses',
-                description: error.message || 'Please try refreshing the page.',
+                title: 'Error loading courses',
+                description: error.message || 'Please try refreshing the page or try again later.',
                 status: 'error',
-                duration: 5000,
+                duration: 7000,
                 isClosable: true,
             });
+            
+            // Set empty courses data
             setCourses({
                 recentlyAdded: [],
                 enrolled: [],
@@ -140,6 +150,12 @@ const StudentDashboard = () => {
                 recommended: false
             });
         }
+    };
+    
+    // Add a retry function
+    const handleRetry = () => {
+        setError(null);
+        fetchCourses();
     };
 
     useEffect(() => {
@@ -163,24 +179,43 @@ const StudentDashboard = () => {
         });
     };
 
+    // Render loading state
     if (loading.all) {
         return (
             <Flex direction="column" minH="100vh">
                 <Navbar />
-                <Flex justify="center" align="center" flex="1">
-                    <Spinner size="xl" />
+                <Flex justify="center" align="center" flex="1" p={8}>
+                    <VStack spacing={6}>
+                        <Spinner size="xl" thickness="4px" speed="0.65s" color="blue.500" />
+                        <Text color="gray.600">Loading courses...</Text>
+                    </VStack>
                 </Flex>
                 <Footer />
             </Flex>
         );
     }
 
+    // Render error state
     if (error) {
         return (
             <Flex direction="column" minH="100vh">
                 <Navbar />
-                <Flex justify="center" align="center" flex="1">
-                    <Text color="red.500">Error: {error}</Text>
+                <Flex justify="center" align="center" flex="1" p={8}>
+                    <VStack spacing={6} maxW="lg" textAlign="center">
+                        <Text color="red.500" fontSize="xl" fontWeight="bold">
+                            {error}
+                        </Text>
+                        <Text color="gray.600">
+                            We're having trouble connecting to our servers. This could be due to network issues or server maintenance.
+                        </Text>
+                        <Button 
+                            colorScheme="blue" 
+                            onClick={handleRetry}
+                            leftIcon={<Icon as={FaGraduationCap} />}
+                        >
+                            Try Again
+                        </Button>
+                    </VStack>
                 </Flex>
                 <Footer />
             </Flex>

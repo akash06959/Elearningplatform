@@ -2066,3 +2066,246 @@ def instructor_course_view(request, course_id):
             {'message': f'Error getting course details: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def process_section_pdf(request, course_id, section_id):
+    """
+    Process a PDF file upload for a specific section
+    """
+    try:
+        # Check if the user is the instructor of the course
+        course = get_object_or_404(Course, id=course_id)
+        if course.instructor != request.user:
+            return Response(
+                {'error': 'You do not have permission to update this course'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        # Get the section
+        section = get_object_or_404(Section, id=section_id)
+        
+        # Make sure the section belongs to a module in this course
+        if not section.module or section.module.course.id != int(course_id):
+            return Response(
+                {'error': 'Section does not belong to this course'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Check if a file was uploaded
+        if 'pdf_file' not in request.FILES:
+            return Response(
+                {'error': 'No PDF file was provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        pdf_file = request.FILES['pdf_file']
+        
+        # Check if it's a PDF (simple check based on file extension)
+        if not pdf_file.name.lower().endswith('.pdf'):
+            return Response(
+                {'error': 'The uploaded file is not a PDF'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Save the PDF file to the section
+        section.pdf_file = pdf_file
+        
+        # Update content type if not already set
+        if section.content_type not in ['pdf', 'both']:
+            if section.video_url:
+                section.content_type = 'both'
+            else:
+                section.content_type = 'pdf'
+                
+        section.save()
+        
+        # Return the updated section data
+        serializer = SectionSerializer(
+            section,
+            context={'request': request}
+        )
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_course_with_files(request, course_id):
+    """
+    Update a course with module and section data, including file uploads
+    """
+    try:
+        # Check if the user is the instructor of the course
+        course = get_object_or_404(Course, id=course_id)
+        if course.instructor != request.user:
+            return Response(
+                {'error': 'You do not have permission to update this course'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        # Process regular form data
+        title = request.data.get('title')
+        description = request.data.get('description')
+        price = request.data.get('price')
+        category_id = request.data.get('category')
+        difficulty_level = request.data.get('difficulty_level')
+        duration_in_weeks = request.data.get('duration_in_weeks')
+        
+        # Update basic course details
+        if title:
+            course.title = title
+        if description:
+            course.description = description
+        if price:
+            course.price = price
+        if category_id:
+            try:
+                category = Category.objects.get(id=category_id)
+                course.category = category
+            except Category.DoesNotExist:
+                pass
+        if difficulty_level:
+            course.difficulty_level = difficulty_level
+        if duration_in_weeks:
+            course.duration_in_weeks = duration_in_weeks
+            
+        # Handle thumbnail upload
+        if 'thumbnail' in request.FILES:
+            course.thumbnail = request.FILES['thumbnail']
+            
+        course.save()
+        
+        # Process modules and sections data from JSON
+        modules_json = request.data.get('modules_json')
+        if modules_json:
+            try:
+                modules_data = json.loads(modules_json)
+                
+                # Check PDF files metadata if provided
+                pdf_uploads_meta = request.data.get('pdf_uploads_meta')
+                pdf_uploads = []
+                
+                if pdf_uploads_meta:
+                    try:
+                        pdf_uploads = json.loads(pdf_uploads_meta)
+                    except json.JSONDecodeError:
+                        pdf_uploads = []
+                
+                # Track existing modules to detect deletions
+                existing_module_ids = set(course.modules.values_list('id', flat=True))
+                updated_module_ids = set()
+                
+                for module_data in modules_data:
+                    module_id = module_data.get('id')
+                    
+                    # Create or update the module
+                    if module_id and Module.objects.filter(id=module_id, course=course).exists():
+                        # Update existing module
+                        module = Module.objects.get(id=module_id)
+                        module.title = module_data.get('title', module.title)
+                        module.description = module_data.get('description', module.description)
+                        module.order = module_data.get('order', module.order)
+                        module.save()
+                        updated_module_ids.add(module.id)
+                    else:
+                        # Create new module
+                        module = Module.objects.create(
+                            course=course,
+                            title=module_data.get('title', 'Untitled Module'),
+                            description=module_data.get('description', ''),
+                            order=module_data.get('order', 1)
+                        )
+                        updated_module_ids.add(module.id)
+                    
+                    # Process sections if they exist
+                    if 'sections' in module_data and isinstance(module_data['sections'], list):
+                        # Track existing sections to detect deletions
+                        existing_section_ids = set(module.sections.values_list('id', flat=True))
+                        updated_section_ids = set()
+                        
+                        for section_data in module_data['sections']:
+                            section_id = section_data.get('id')
+                            
+                            # Create or update the section
+                            if section_id and Section.objects.filter(id=section_id, module=module).exists():
+                                # Update existing section
+                                section = Section.objects.get(id=section_id)
+                                section.title = section_data.get('title', section.title)
+                                section.description = section_data.get('description', section.description)
+                                section.order = section_data.get('order', section.order)
+                                section.content_type = section_data.get('content_type', section.content_type)
+                                section.video_url = section_data.get('video_url', section.video_url)
+                                section.video_id = section_data.get('video_id', section.video_id)
+                                
+                                # Only update pdf_url if it's not being replaced by a file upload
+                                if not section_data.get('has_new_pdf', False):
+                                    section.pdf_url = section_data.get('pdf_url', section.pdf_url)
+                                
+                                section.save()
+                                updated_section_ids.add(section.id)
+                            else:
+                                # Create new section
+                                section = Section.objects.create(
+                                    module=module,
+                                    title=section_data.get('title', 'Untitled Section'),
+                                    description=section_data.get('description', ''),
+                                    order=section_data.get('order', 1),
+                                    content_type=section_data.get('content_type', 'video'),
+                                    video_url=section_data.get('video_url', ''),
+                                    video_id=section_data.get('video_id', ''),
+                                    pdf_url=section_data.get('pdf_url', '')
+                                )
+                                updated_section_ids.add(section.id)
+                            
+                            # Handle PDF file uploads for this section
+                            if section_data.get('has_new_pdf', False) and section_data.get('pdf_key'):
+                                pdf_key = section_data.get('pdf_key')
+                                
+                                # Find PDF upload metadata
+                                pdf_meta = next((item for item in pdf_uploads if item.get('pdfKey') == pdf_key), None)
+                                
+                                # Find the actual file in the request.FILES
+                                for i in range(len(pdf_uploads)):
+                                    file_key = f'section_pdf_{i}'
+                                    if file_key in request.FILES:
+                                        # If we found the right file, attach it to the section
+                                        if not pdf_meta or i == pdf_meta.get('pdfIndex'):
+                                            section.pdf_file = request.FILES[file_key]
+                                            section.save()
+                                            break
+                        
+                        # Delete sections that weren't updated
+                        sections_to_delete = existing_section_ids - updated_section_ids
+                        if sections_to_delete:
+                            Section.objects.filter(id__in=sections_to_delete).delete()
+                
+                # Delete modules that weren't updated
+                modules_to_delete = existing_module_ids - updated_module_ids
+                if modules_to_delete:
+                    Module.objects.filter(id__in=modules_to_delete).delete()
+                
+            except json.JSONDecodeError as e:
+                return Response(
+                    {'error': f'Invalid JSON in modules_json: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Return the updated course data
+        serializer = CourseSerializer(
+            course,
+            context={'request': request}
+        )
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

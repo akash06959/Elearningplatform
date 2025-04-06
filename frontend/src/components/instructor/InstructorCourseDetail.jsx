@@ -342,114 +342,211 @@ function InstructorCourseDetail() {
                 </div>
               )}
               
-              <div style={styles.detailSection}>
-                <h2 style={styles.detailHeader}>Modules and Content</h2>
-                {console.log('Rendering modules section with data:', {
-                  courseHasModules: !!course.modules, 
-                  modulesLength: course.modules?.length || 0,
-                  modulesSample: course.modules?.[0] || 'No modules'
-                })}
-                {course.modules && course.modules.length > 0 ? (
-                  course.modules.map((module, index) => (
-                    <div key={module.id || index} style={styles.moduleContainer}>
-                      {console.log('Rendering module:', module)}
-                      <h3 style={styles.moduleTitle}>
-                        Module {module.order || index + 1}: {module.title}
-                      </h3>
-                      <p>{module.description || 'No description provided.'}</p>
+              {course.modules && course.modules.length > 0 && (
+                <div style={styles.detailSection}>
+                  <h3 style={styles.detailHeader}>Modules and Content</h3>
+                  {course.modules.map((module) => (
+                    <div key={module.id} style={styles.moduleContainer}>
+                      <h4 style={styles.moduleTitle}>{module.title || 'Unnamed Module'}</h4>
+                      <p>{module.description}</p>
                       
-                      <h4 style={{marginTop: '1rem', fontWeight: '500'}}>Sections:</h4>
                       {module.sections && module.sections.length > 0 ? (
                         <div style={styles.sectionList}>
-                          {module.sections.map((section, sectionIndex) => (
-                            <div key={section.id || sectionIndex} style={styles.sectionItem}>
-                              {console.log('Rendering section:', section)}
-                              <div style={{fontWeight: '500'}}>{section.title}</div>
-                              <div style={{fontSize: '0.875rem', color: '#6b7280'}}>
-                                {section.content_type === 'video' && (
-                                  <div>
-                                    <span>Video content</span>
-                                    {section.video_url && (
-                                      <div style={{marginTop: '0.25rem'}}>
-                                        <a href={section.video_url} 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           style={{color: '#3b82f6', textDecoration: 'underline'}}
-                                        >
-                                          View Video
-                                        </a>
+                          {module.sections.map((section) => {
+                            // Extract video ID from YouTube URL if present
+                            let videoId = '';
+                            if (section.video_url) {
+                              try {
+                                if (section.video_id) {
+                                  videoId = section.video_id;
+                                } else if (section.video_url.includes('youtube.com/watch')) {
+                                  const urlParams = new URL(section.video_url).searchParams;
+                                  videoId = urlParams.get('v');
+                                } else if (section.video_url.includes('youtu.be/')) {
+                                  videoId = section.video_url.split('youtu.be/')[1].split('?')[0];
+                                } else if (section.video_url.includes('youtube.com/embed/')) {
+                                  videoId = section.video_url.split('youtube.com/embed/')[1].split('?')[0];
+                                }
+                              } catch (e) {
+                                console.error('Error parsing YouTube URL', e);
+                              }
+                            }
+                            
+                            return (
+                              <div key={section.id} style={{
+                                ...styles.sectionItem,
+                                borderLeft: '3px solid #6366f1',
+                                padding: '0.75rem',
+                                marginBottom: '0.75rem'
+                              }}>
+                                <h5 style={{
+                                  fontSize: '1rem',
+                                  fontWeight: '600',
+                                  marginBottom: '0.5rem'
+                                }}>{section.title || 'Unnamed Section'}</h5>
+                                
+                                <p style={{ marginBottom: '0.75rem' }}>{section.description}</p>
+                                
+                                <div style={{ marginTop: '0.75rem' }}>
+                                  {(section.content_type === 'video' || section.content_type === 'both') && section.video_url && (
+                                    <div>
+                                      <div style={{
+                                        fontWeight: '500',
+                                        color: '#4b5563',
+                                        marginBottom: '0.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center'
+                                      }}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ width: '1.25rem', height: '1.25rem', marginRight: '0.5rem' }}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Video Content
                                       </div>
-                                    )}
-                                  </div>
-                                )}
-                                {section.content_type === 'pdf' && (
-                                  <div>
-                                    <span>PDF document</span>
-                                    {section.pdf_url && (
-                                      <div style={{marginTop: '0.25rem'}}>
-                                        <a href={section.pdf_url} 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           style={{color: '#3b82f6', textDecoration: 'underline'}}
+                                      
+                                      {videoId ? (
+                                        <div style={{
+                                          position: 'relative',
+                                          paddingBottom: '56.25%', // 16:9 aspect ratio
+                                          height: 0,
+                                          overflow: 'hidden',
+                                          marginBottom: '1rem',
+                                          borderRadius: '0.375rem',
+                                          border: '1px solid #e5e7eb',
+                                        }}>
+                                          <iframe 
+                                            style={{
+                                              position: 'absolute',
+                                              top: 0,
+                                              left: 0,
+                                              width: '100%',
+                                              height: '100%',
+                                              borderRadius: '0.375rem',
+                                            }}
+                                            src={`https://www.youtube.com/embed/${videoId}`}
+                                            title="YouTube video player"
+                                            frameBorder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowFullScreen
+                                          ></iframe>
+                                        </div>
+                                      ) : (
+                                        <a
+                                          href={section.video_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{
+                                            display: 'inline-block',
+                                            padding: '0.5rem 0.75rem',
+                                            backgroundColor: '#eff6ff',
+                                            color: '#1d4ed8',
+                                            borderRadius: '0.375rem',
+                                            textDecoration: 'none',
+                                            marginBottom: '0.75rem',
+                                            fontWeight: '500',
+                                          }}
                                         >
-                                          View PDF
-                                        </a>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {section.content_type === 'both' && (
-                                  <div>
-                                    <span>Video and PDF content</span>
-                                    <div style={{marginTop: '0.25rem', display: 'flex', gap: '1rem'}}>
-                                      {section.video_url && (
-                                        <a href={section.video_url} 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           style={{color: '#3b82f6', textDecoration: 'underline'}}
-                                        >
-                                          View Video
-                                        </a>
-                                      )}
-                                      {section.pdf_url && (
-                                        <a href={section.pdf_url} 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           style={{color: '#3b82f6', textDecoration: 'underline'}}
-                                        >
-                                          View PDF
+                                          Open Video
                                         </a>
                                       )}
                                     </div>
-                                  </div>
-                                )}
+                                  )}
+                                  
+                                  {(section.content_type === 'pdf' || section.content_type === 'both') && section.pdf_url && (
+                                    <div>
+                                      <div style={{
+                                        fontWeight: '500',
+                                        color: '#4b5563',
+                                        marginBottom: '0.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center'
+                                      }}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ width: '1.25rem', height: '1.25rem', marginRight: '0.5rem' }}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        PDF Document
+                                      </div>
+                                      
+                                      <div style={{
+                                        border: '1px solid #e5e7eb',
+                                        borderRadius: '0.375rem',
+                                        overflow: 'hidden',
+                                        marginBottom: '0.75rem',
+                                      }}>
+                                        <div style={{
+                                          position: 'relative',
+                                          height: '400px',
+                                          width: '100%',
+                                        }}>
+                                          <iframe
+                                            src={`${section.pdf_url}#toolbar=0&navpanes=0`}
+                                            style={{
+                                              width: '100%',
+                                              height: '100%',
+                                              border: 'none',
+                                            }}
+                                            title="PDF Document"
+                                          ></iframe>
+                                        </div>
+                                        <div style={{
+                                          padding: '0.5rem',
+                                          display: 'flex',
+                                          justifyContent: 'center',
+                                          backgroundColor: '#f9fafb',
+                                          borderTop: '1px solid #e5e7eb'
+                                        }}>
+                                          <a
+                                            href={section.pdf_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                              display: 'inline-block',
+                                              padding: '0.5rem 0.75rem',
+                                              backgroundColor: '#eff6ff',
+                                              color: '#1d4ed8',
+                                              borderRadius: '0.375rem',
+                                              textDecoration: 'none',
+                                              fontWeight: '500',
+                                            }}
+                                          >
+                                            Open PDF in New Tab
+                                          </a>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {section.content_type === 'text' && (
+                                    <div style={{
+                                      padding: '0.75rem',
+                                      backgroundColor: '#f9fafb',
+                                      borderRadius: '0.375rem',
+                                      border: '1px solid #e5e7eb',
+                                    }}>
+                                      <div style={{
+                                        fontWeight: '500',
+                                        color: '#4b5563',
+                                        marginBottom: '0.5rem',
+                                      }}>
+                                        Text Content
+                                      </div>
+                                      <div>{section.description}</div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
-                        <p>No sections in this module.</p>
+                        <div style={{ marginTop: '0.5rem', color: '#6b7280', fontStyle: 'italic' }}>
+                          No sections defined for this module.
+                        </div>
                       )}
                     </div>
-                  ))
-                ) : (
-                  <div>
-                    <p>No modules defined for this course.</p>
-                    <div style={{marginTop: '1rem', padding: '1rem', backgroundColor: '#fee2e2', borderRadius: '0.375rem'}}>
-                      <p style={{fontWeight: '500', color: '#b91c1c'}}>Important:</p>
-                      <p>This course has no content modules defined. Students will not be able to access any learning materials.</p>
-                      <p style={{marginTop: '0.5rem'}}>
-                        <Link 
-                          to={`/instructor/courses/${courseId}/edit`} 
-                          style={{color: '#2563eb', textDecoration: 'underline', fontWeight: '500'}}
-                        >
-                          Edit this course
-                        </Link> to add modules and sections.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
               
               <div style={styles.detailSection}>
                 <h2 style={styles.detailHeader}>Quizzes</h2>

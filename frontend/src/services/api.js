@@ -377,6 +377,12 @@ export const courseAPI = {
       console.log('\n=== Updating Course ===');
       console.log('Course ID:', courseId);
       
+      // Check if this is a FormData with PDF uploads
+      if (courseData instanceof FormData && courseData.get('pdf_uploads_count')) {
+        console.log('Detected PDF uploads in course data, using file upload endpoint');
+        return courseAPI.updateCourseWithFiles(courseId, courseData);
+      }
+      
       // Log important parts of the form data for debugging
       if (courseData instanceof FormData) {
         console.log('Course data is FormData');
@@ -517,6 +523,94 @@ export const courseAPI = {
     }
   },
 
+  // Update a course with file uploads (PDFs)
+  updateCourseWithFiles: async (courseId, courseData) => {
+    try {
+      console.log('\n=== Updating Course with Files ===');
+      console.log('Course ID:', courseId);
+      
+      // Ensure we're using FormData
+      if (!(courseData instanceof FormData)) {
+        throw new Error('courseData must be FormData when using updateCourseWithFiles');
+      }
+      
+      // Use the dedicated endpoint for file uploads
+      const url = `/courses/instructor/courses/${courseId}/update-with-files/`;
+      
+      // Set up headers with authentication
+      const headers = {
+        'Authorization': `Bearer ${JSON.parse(localStorage.getItem('authTokens')).access}`
+      };
+      
+      // Log what we're sending
+      console.log('Sending FormData to:', url);
+      console.log('PDF uploads count:', courseData.get('pdf_uploads_count'));
+      
+      // Make the request
+      const response = await axios.post(url, courseData, {
+        headers,
+        // This is important - don't let axios transform the FormData
+        transformRequest: [
+          (data) => {
+            console.log('Not transforming FormData for file upload');
+            return data;
+          }
+        ]
+      });
+      
+      console.log('Course update with files successful:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error in updateCourseWithFiles:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error(error.response?.data?.message || error.message || 'Failed to update course with files');
+    }
+  },
+  
+  // Upload a PDF file to a specific section
+  uploadSectionPDF: async (courseId, sectionId, pdfFile) => {
+    try {
+      console.log('\n=== Uploading Section PDF ===');
+      console.log('Course ID:', courseId, 'Section ID:', sectionId);
+      
+      // Create FormData for the file
+      const formData = new FormData();
+      formData.append('pdf_file', pdfFile);
+      
+      // Use the PDF upload endpoint
+      const url = `/courses/instructor/courses/${courseId}/sections/${sectionId}/upload-pdf/`;
+      
+      // Set up headers with authentication
+      const headers = {
+        'Authorization': `Bearer ${JSON.parse(localStorage.getItem('authTokens')).access}`
+      };
+      
+      // Make the request
+      const response = await axios.post(url, formData, {
+        headers,
+        transformRequest: [
+          (data) => {
+            console.log('Not transforming FormData for PDF upload');
+            return data;
+          }
+        ]
+      });
+      
+      console.log('PDF upload successful:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error in uploadSectionPDF:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error(error.response?.data?.message || error.message || 'Failed to upload PDF');
+    }
+  },
+
   // Get all courses
   getAllCourses: async (filters = {}) => {
     try {
@@ -604,27 +698,114 @@ export const courseAPI = {
   getEnrolledCourses: async () => {
     try {
       console.log('\n=== Getting Enrolled Courses ===');
-      const response = await api.get('/courses/enrolled/');
-      console.log('GetEnrolledCourses Raw Response:', response);
       
-      let courses = [];
-      if (Array.isArray(response)) {
-        courses = response;
-      } else if (response?.courses) {
-        courses = response.courses;
-      } else if (response?.results) {
-        courses = response.results;
+      // Try multiple potential endpoints that might contain enrolled courses
+      const endpoints = [
+        '/courses/enrolled/',
+        '/api/courses/enrolled/',
+        '/enrollments/courses/', 
+        '/api/enrollments/enrolled/'
+      ];
+      
+      let response = null;
+      let error = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint for enrolled courses: ${endpoint}`);
+          response = await api.get(endpoint);
+          console.log(`Successful response from ${endpoint}:`, response);
+          break; // Exit the loop on success
+        } catch (endpointError) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: endpointError.response?.status,
+            message: endpointError.message
+          });
+          
+          // If this is not a 404, it's a meaningful error
+          if (endpointError.response?.status !== 404) {
+            error = endpointError;
+            break;
+          }
+          
+          error = endpointError;
+        }
       }
       
-      console.log('Processed enrolled courses:', courses);
-      return courses;
+      // If we have no response but have an error, rethrow it
+      if (!response && error) {
+        throw error;
+      }
+      
+      // If we somehow have no response and no error, return an empty array
+      if (!response) {
+        console.log('No valid response from any endpoint');
+        return [];
+      }
+      
+      // Extract courses data from response, which could have different structures
+      let courses = [];
+      
+      if (Array.isArray(response)) {
+        courses = response;
+      } else if (response.results) {
+        courses = response.results;
+      } else if (response.data) {
+        courses = response.data;
+      } else if (response.courses) {
+        courses = response.courses;
+      } else if (typeof response === 'object' && Object.keys(response).length > 0) {
+        // Try to interpret the response as a single course or enrollment
+        if (response.id || response.course) {
+          courses = [response];
+        }
+      }
+      
+      console.log('Extracted courses data:', courses);
+      
+      // Process and normalize each enrolled course
+      const processedCourses = courses.map(item => {
+        // Handle different response structures
+        const course = item.course || item;
+        
+        return {
+          id: course.id,
+          title: course.title || 'Untitled Course',
+          description: course.description || 'No description available',
+          thumbnail: processImageUrl(course.thumbnail || course.thumbnail_url),
+          cover_image: processImageUrl(course.cover_image || course.cover_image_url),
+          instructor: {
+            name: course.instructor?.name || 
+                course.instructor?.username || 
+                (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
+            username: course.instructor?.username || 'unknown'
+          },
+          category: typeof course.category === 'object' ? 
+                course.category?.name || 'Uncategorized' : 
+                course.category || 'Uncategorized',
+          difficulty_level: course.difficulty_level || course.difficulty || 'All Levels',
+          duration_in_weeks: course.duration_in_weeks || 'Self-paced',
+          price: parseFloat(course.price || 0),
+          total_students: parseInt(course.total_students || 0),
+          rating: parseFloat(course.rating || course.avg_rating || 0),
+          enrollment_date: item.enrollment_date || item.created_at || item.enrolled_at,
+          progress: item.progress || course.progress || 0
+        };
+      });
+
+      console.log('Processed enrolled courses:', processedCourses);
+      return processedCourses;
     } catch (error) {
-      console.error('Error in getEnrolledCourses:', {
+      console.error('Error in getEnrolledCourses:', error);
+      console.error('Full error details:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status
       });
-      return [];
+      
+      // Instead of returning empty array, rethrow the error to allow the component to handle it
+      throw new Error('Failed to load enrolled courses. Please try again later.');
     }
   },
 
@@ -1078,50 +1259,114 @@ export const enrollmentAPI = {
   getEnrolledCourses: async () => {
     try {
       console.log('\n=== Getting Enrolled Courses ===');
-      const response = await api.get('/courses/enrolled/');  // Changed from /enrollments/api/enrolled-courses/
-      console.log('Raw enrolled courses response:', response);
       
+      // Try multiple potential endpoints that might contain enrolled courses
+      const endpoints = [
+        '/courses/enrolled/',
+        '/api/courses/enrolled/',
+        '/enrollments/courses/', 
+        '/api/enrollments/enrolled/'
+      ];
+      
+      let response = null;
+      let error = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint for enrolled courses: ${endpoint}`);
+          response = await api.get(endpoint);
+          console.log(`Successful response from ${endpoint}:`, response);
+          break; // Exit the loop on success
+        } catch (endpointError) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: endpointError.response?.status,
+            message: endpointError.message
+          });
+          
+          // If this is not a 404, it's a meaningful error
+          if (endpointError.response?.status !== 404) {
+            error = endpointError;
+            break;
+          }
+          
+          error = endpointError;
+        }
+      }
+      
+      // If we have no response but have an error, rethrow it
+      if (!response && error) {
+        throw error;
+      }
+      
+      // If we somehow have no response and no error, return an empty array
+      if (!response) {
+        console.log('No valid response from any endpoint');
+        return [];
+      }
+      
+      // Extract courses data from response, which could have different structures
       let courses = [];
+      
       if (Array.isArray(response)) {
         courses = response;
-      } else if (response?.data) {
-        courses = response.data;
-      } else if (response?.results) {
+      } else if (response.results) {
         courses = response.results;
+      } else if (response.data) {
+        courses = response.data;
+      } else if (response.courses) {
+        courses = response.courses;
+      } else if (typeof response === 'object' && Object.keys(response).length > 0) {
+        // Try to interpret the response as a single course or enrollment
+        if (response.id || response.course) {
+          courses = [response];
+        }
       }
-
-      // Process and validate each enrolled course
-      const processedCourses = courses
-        .filter(course => course && course.course)
-        .map(enrollment => ({
-          id: enrollment.course.id,
-          title: enrollment.course.title || 'Untitled Course',
-          description: enrollment.course.description || 'No description available',
-          thumbnail: processImageUrl(enrollment.course.thumbnail || enrollment.course.thumbnail_url),
-          cover_image: processImageUrl(enrollment.course.cover_image || enrollment.course.cover_image_url),
+      
+      console.log('Extracted courses data:', courses);
+      
+      // Process and normalize each enrolled course
+      const processedCourses = courses.map(item => {
+        // Handle different response structures
+        const course = item.course || item;
+        
+        return {
+          id: course.id,
+          title: course.title || 'Untitled Course',
+          description: course.description || 'No description available',
+          thumbnail: processImageUrl(course.thumbnail || course.thumbnail_url),
+          cover_image: processImageUrl(course.cover_image || course.cover_image_url),
           instructor: {
-            name: enrollment.course.instructor?.name || 
-                  enrollment.course.instructor?.username || 
-                  (typeof enrollment.course.instructor === 'string' ? enrollment.course.instructor : 'Unknown'),
-            username: enrollment.course.instructor?.username || 'unknown'
+            name: course.instructor?.name || 
+                course.instructor?.username || 
+                (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
+            username: course.instructor?.username || 'unknown'
           },
-          category: typeof enrollment.course.category === 'object' ? 
-                   enrollment.course.category?.name || 'Uncategorized' : 
-                   enrollment.course.category || 'Uncategorized',
-          difficulty_level: enrollment.course.difficulty_level || 'All Levels',
-          duration_in_weeks: enrollment.course.duration_in_weeks || 'Self-paced',
-          price: parseFloat(enrollment.course.price || 0),
-          total_students: parseInt(enrollment.course.total_students || 0),
-          rating: parseFloat(enrollment.course.rating || enrollment.course.avg_rating || 0),
-          enrollment_date: enrollment.enrollment_date,
-          progress: enrollment.progress || 0
-        }));
+          category: typeof course.category === 'object' ? 
+                course.category?.name || 'Uncategorized' : 
+                course.category || 'Uncategorized',
+          difficulty_level: course.difficulty_level || course.difficulty || 'All Levels',
+          duration_in_weeks: course.duration_in_weeks || 'Self-paced',
+          price: parseFloat(course.price || 0),
+          total_students: parseInt(course.total_students || 0),
+          rating: parseFloat(course.rating || course.avg_rating || 0),
+          enrollment_date: item.enrollment_date || item.created_at || item.enrolled_at,
+          progress: item.progress || course.progress || 0
+        };
+      });
 
       console.log('Processed enrolled courses:', processedCourses);
       return processedCourses;
     } catch (error) {
       console.error('Error in getEnrolledCourses:', error);
-      return [];
+      console.error('Full error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Instead of returning empty array, rethrow the error to allow the component to handle it
+      throw new Error('Failed to load enrolled courses. Please try again later.');
     }
   }
 };

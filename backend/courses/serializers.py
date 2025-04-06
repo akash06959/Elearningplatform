@@ -43,10 +43,18 @@ class LessonSerializer(serializers.ModelSerializer):
 
 class SectionSerializer(serializers.ModelSerializer):
     completed = serializers.SerializerMethodField()
+    pdf_file_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Section
-        fields = ['id', 'title', 'description', 'order', 'content_type', 'video_url', 'pdf_url', 'completed']
+        fields = [
+            'id', 'title', 'description', 'order', 'content_type',
+            'video_url', 'video_id', 'pdf_url', 'pdf_file', 'pdf_file_url',
+            'completed'
+        ]
+        extra_kwargs = {
+            'pdf_file': {'write_only': True}  # Don't include the actual file in responses
+        }
     
     def get_completed(self, obj):
         request = self.context.get('request')
@@ -81,6 +89,44 @@ class SectionSerializer(serializers.ModelSerializer):
             
         except (Enrollment.DoesNotExist, AttributeError):
             return False
+            
+    def get_pdf_file_url(self, obj):
+        if obj.pdf_file:
+            request = self.context.get('request')
+            if request:
+                # Return the full URL including domain
+                return request.build_absolute_uri(obj.pdf_file.url)
+            # If no request in context, just return the relative URL
+            return obj.pdf_file.url
+        return None
+        
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        
+        # If we have a PDF file but no PDF URL, use the file URL
+        if not representation.get('pdf_url') and representation.get('pdf_file_url'):
+            representation['pdf_url'] = representation['pdf_file_url']
+            
+        # For YouTube videos, ensure video_id is extracted if not already set
+        if representation.get('video_url') and not representation.get('video_id'):
+            video_url = representation.get('video_url')
+            try:
+                video_id = None
+                if 'youtube.com/watch' in video_url:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed_url = urlparse(video_url)
+                    video_id = parse_qs(parsed_url.query).get('v', [None])[0]
+                elif 'youtu.be/' in video_url:
+                    video_id = video_url.split('youtu.be/')[1].split('?')[0]
+                elif 'youtube.com/embed/' in video_url:
+                    video_id = video_url.split('youtube.com/embed/')[1].split('?')[0]
+                
+                if video_id:
+                    representation['video_id'] = video_id
+            except Exception as e:
+                print(f"Error extracting video ID: {str(e)}")
+                
+        return representation
 
 class InstructorSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()

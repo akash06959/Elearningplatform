@@ -261,6 +261,42 @@ function EditCourse() {
     );
   };
   
+  const addModule = () => {
+    setModules(prevModules => {
+      const newModuleId = prevModules.length > 0 
+        ? Math.max(...prevModules.map(m => m.id)) + 1 
+        : 1;
+      const newModuleOrder = prevModules.length > 0 
+        ? Math.max(...prevModules.map(m => m.order)) + 1 
+        : 1;
+      
+      return [
+        ...prevModules,
+        {
+          id: newModuleId,
+          title: `Module ${newModuleOrder}`,
+          description: '',
+          order: newModuleOrder,
+          sections: [{ 
+            id: 1, 
+            title: 'Section 1', 
+            description: '', 
+            content_type: 'video', 
+            video_url: '', 
+            pdf_url: '', 
+            order: 1 
+          }]
+        }
+      ];
+    });
+  };
+  
+  const deleteModule = (moduleId) => {
+    setModules(prevModules => 
+      prevModules.filter(module => module.id !== moduleId)
+    );
+  };
+  
   const handleSectionChange = (moduleId, sectionId, field, value) => {
     setModules(prevModules => 
       prevModules.map(module => {
@@ -435,27 +471,98 @@ function EditCourse() {
         formData.append('thumbnail', courseData.thumbnail);
       }
       
+      // Process all PDFs uploads from sections
+      const pdfUploads = [];
+      let pdfIndex = 0;
+      
+      // Create an array to track which modules contain PDF files
+      modules.forEach((module, moduleIndex) => {
+        if (module && Array.isArray(module.sections)) {
+          module.sections.forEach((section, sectionIndex) => {
+            if (section && (section.content_type === 'pdf' || section.content_type === 'both')) {
+              if (section.pdf_file) {
+                // Generate a unique key for this PDF
+                const pdfKey = `pdf_${moduleIndex}_${sectionIndex}`;
+                
+                // Store file data for the form
+                formData.append(`section_pdf_${pdfIndex}`, section.pdf_file);
+                
+                // Store metadata about this upload
+                pdfUploads.push({
+                  pdfIndex,
+                  moduleId: module.id,
+                  moduleIndex,
+                  sectionId: section.id,
+                  sectionIndex,
+                  originalFilename: section.pdf_filename,
+                  pdfKey
+                });
+                
+                // Store the key in the section so we can reference it later
+                section.pdf_key = pdfKey;
+                pdfIndex++;
+              }
+            }
+          });
+        }
+      });
+      
+      // Add PDF upload metadata to the form
+      if (pdfUploads.length > 0) {
+        console.log(`Adding ${pdfUploads.length} PDF uploads to the form data`);
+        formData.append('pdf_uploads_count', pdfUploads.length);
+        formData.append('pdf_uploads_meta', JSON.stringify(pdfUploads));
+      }
+      
       // Add modules and their sections - preserve all modules even if empty
-      // Make sure modules JSON is properly structured
+      // Clean up modules before saving to ensure proper structure
       const modulesData = modules
+        .filter(module => module) // Filter out any null/undefined modules
         .map((module, index) => ({
           id: module.id || Date.now() + index, // Ensure we have an ID
           title: module.title || `Module ${index + 1}`,
           description: module.description || '',
           order: module.order || index + 1,
-          sections: module.sections
-            .map((section, sectionIndex) => ({
-              id: section.id || Date.now() + sectionIndex,
-              title: section.title || `Section ${sectionIndex + 1}`,
-              description: section.description || '',
-              content_type: section.content_type || 'video',
-              video_url: section.video_url || '',
-              pdf_url: section.pdf_url || '',
-              order: section.order || sectionIndex + 1
-            }))
+          // Make sure sections are properly formed
+          sections: Array.isArray(module.sections) 
+            ? module.sections
+                .filter(section => section) // Filter out any null/undefined sections
+                .map((section, sectionIndex) => {
+                  // Create a base section object
+                  const sectionObj = {
+                    id: section.id || Date.now() + sectionIndex,
+                    title: section.title || `Section ${sectionIndex + 1}`,
+                    description: section.description || '',
+                    content_type: section.content_type || 'video',
+                    video_url: section.video_url || '',
+                    video_id: section.video_id || '',
+                    pdf_url: section.pdf_url || '',
+                    order: section.order || sectionIndex + 1
+                  };
+                  
+                  // If this section has a PDF file attached, include the PDF key
+                  if (section.pdf_file && section.pdf_key) {
+                    sectionObj.pdf_key = section.pdf_key;
+                    sectionObj.pdf_filename = section.pdf_filename;
+                    // Set a flag to indicate a new PDF needs to be processed
+                    sectionObj.has_new_pdf = true;
+                  }
+                  
+                  return sectionObj;
+                })
+            : [] // If no sections array, provide empty array
         }));
         
-      console.log('Modules data before stringify:', modulesData);
+      console.log('Modules data prepared for submission:', modulesData);
+      console.log('Total modules being submitted:', modulesData.length);
+      console.log('PDF files to upload:', pdfUploads.length);
+      
+      modulesData.forEach((module, idx) => {
+        console.log(`Module ${idx + 1}: "${module.title}" with ${module.sections.length} sections`);
+        module.sections.forEach((section, sIdx) => {
+          console.log(`  Section ${sIdx + 1}: "${section.title}", Type: ${section.content_type}, Video URL: ${section.video_url || 'none'}, PDF: ${section.has_new_pdf ? 'Yes (new upload)' : (section.pdf_url ? 'Yes (existing)' : 'none')}`);
+        });
+      });
 
       // Always append modules data regardless of length
       const modulesJson = JSON.stringify(modulesData);
@@ -464,25 +571,31 @@ function EditCourse() {
       // Also include as a separate field to ensure the backend sees it
       formData.append('modules', modulesJson);
       
-      // Add quizzes - make sure quizzes JSON is properly structured
+      // Similar improvements for quizzes
       const quizzesData = quizzes
+        .filter(quiz => quiz) // Filter out any null/undefined quizzes
         .map((quiz, index) => ({
           id: quiz.id || Date.now() + index,
           title: quiz.title || `Quiz ${index + 1}`,
           description: quiz.description || '',
           module_id: quiz.module_id || modules[0]?.id || 1,
           order: index + 1,
-          questions: quiz.questions
-            .map((question, questionIndex) => ({
-              id: question.id || Date.now() + questionIndex,
-              question: question.question || `Question ${questionIndex + 1}`,
-              options: question.options.map(option => option || 'No answer'),
-              correct_option: question.correct_option,
-              order: questionIndex + 1
-            }))
+          questions: Array.isArray(quiz.questions)
+            ? quiz.questions
+                .filter(question => question) // Filter out any null/undefined questions
+                .map((question, questionIndex) => ({
+                  id: question.id || Date.now() + questionIndex,
+                  question: question.question || `Question ${questionIndex + 1}`,
+                  options: Array.isArray(question.options) 
+                    ? question.options.map(option => option || 'No answer')
+                    : ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+                  correct_option: typeof question.correct_option === 'number' ? question.correct_option : 0,
+                  order: questionIndex + 1
+                }))
+            : [] // If no questions array, provide empty array
         }));
         
-      console.log('Quizzes data before stringify:', quizzesData);
+      console.log('Quizzes data prepared for submission:', quizzesData);
 
       // Always append quizzes data regardless of length   
       const quizzesJson = JSON.stringify(quizzesData);   
@@ -493,16 +606,18 @@ function EditCourse() {
 
       console.log('Sending update request for course:', courseId);
       
-      // Log each key-value pair in the FormData
-      console.log('FormData entries:');
-      for (let [key, value] of formData.entries()) {
-        if (key === 'modules_json' || key === 'quizzes_json') {
-          console.log(`${key}: ${value.substring(0, 100)}...`); // Log just first 100 chars of JSON
-        } else if (key === 'thumbnail') {
-          console.log(`${key}: [File object]`);
-        } else {
-          console.log(`${key}: ${value}`);
-        }
+      // Backup the course data to localStorage in case of interruption
+      try {
+        const backupKey = `course_backup_${courseId}`;
+        const backupData = {
+          modules: modulesData,
+          quizzes: quizzesData,
+          lastUpdated: new Date().toISOString()
+        };
+        localStorage.setItem(backupKey, JSON.stringify(backupData));
+        console.log('Course data backed up to localStorage');
+      } catch (backupError) {
+        console.warn('Failed to backup course data to localStorage:', backupError);
       }
       
       // First attempt: use courseAPI
@@ -795,6 +910,53 @@ function EditCourse() {
     // Fallback: Save to localStorage as a last resort
     try {
       console.log('Saving course data to localStorage as fallback');
+
+      // Define modules and quizzes data here to avoid the no-undef error
+      const modulesToSave = modules
+        .filter(module => module)
+        .map((module, index) => ({
+          id: module.id || Date.now() + index,
+          title: module.title || `Module ${index + 1}`,
+          description: module.description || '',
+          order: module.order || index + 1,
+          sections: Array.isArray(module.sections) 
+            ? module.sections
+                .filter(section => section)
+                .map((section, sectionIndex) => ({
+                  id: section.id || Date.now() + sectionIndex,
+                  title: section.title || `Section ${sectionIndex + 1}`,
+                  description: section.description || '',
+                  content_type: section.content_type || 'video',
+                  video_url: section.video_url || '',
+                  pdf_url: section.pdf_url || '',
+                  order: section.order || sectionIndex + 1
+                }))
+            : []
+        }));
+
+      const quizzesToSave = quizzes
+        .filter(quiz => quiz)
+        .map((quiz, index) => ({
+          id: quiz.id || Date.now() + index,
+          title: quiz.title || `Quiz ${index + 1}`,
+          description: quiz.description || '',
+          module_id: quiz.module_id || modules[0]?.id || 1,
+          order: index + 1,
+          questions: Array.isArray(quiz.questions)
+            ? quiz.questions
+                .filter(question => question)
+                .map((question, questionIndex) => ({
+                  id: question.id || Date.now() + questionIndex,
+                  question: question.question || `Question ${questionIndex + 1}`,
+                  options: Array.isArray(question.options) 
+                    ? question.options.map(option => option || 'No answer')
+                    : ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+                  correct_option: typeof question.correct_option === 'number' ? question.correct_option : 0,
+                  order: questionIndex + 1
+                }))
+            : []
+        }));
+      
       const courseToSave = {
         id: courseId,
         title: courseData.title,
@@ -803,35 +965,8 @@ function EditCourse() {
         category: courseData.category,
         difficulty_level: courseData.level,
         duration_in_weeks: courseData.duration,
-        modules: modules.map((module, index) => ({
-          id: module.id || Date.now() + index,
-          title: module.title || `Module ${index + 1}`,
-          description: module.description || '',
-          order: module.order || index + 1,
-          sections: module.sections.map((section, sectionIndex) => ({
-            id: section.id || Date.now() + sectionIndex,
-            title: section.title || `Section ${sectionIndex + 1}`,
-            description: section.description || '',
-            content_type: section.content_type || 'video',
-            video_url: section.video_url || '',
-            pdf_url: section.pdf_url || '',
-            order: section.order || sectionIndex + 1
-          }))
-        })),
-        quizzes: quizzes.map((quiz, index) => ({
-          id: quiz.id || Date.now() + index,
-          title: quiz.title || `Quiz ${index + 1}`,
-          description: quiz.description || '',
-          module_id: quiz.module_id || modules[0]?.id || 1,
-          order: index + 1,
-          questions: quiz.questions.map((question, questionIndex) => ({
-            id: question.id || Date.now() + questionIndex,
-            question: question.question || `Question ${questionIndex + 1}`,
-            options: question.options.map(option => option || 'No answer'),
-            correct_option: question.correct_option,
-            order: questionIndex + 1
-          }))
-        })),
+        modules: modulesToSave,
+        quizzes: quizzesToSave,
         lastUpdated: new Date().toISOString()
       };
       
@@ -1299,160 +1434,343 @@ function EditCourse() {
                 )}
                 
                 {activeTab === 'modules' && (
-                  <div style={styles.tabContent}>
-                    <div style={styles.progressBar}>
-                      <div style={{ ...styles.progressFill, width: '66%' }}></div>
+                  <div className="bg-white p-6 rounded-lg shadow">
+                    <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-xl font-bold">Course Modules</h2>
+                      <button 
+                        type="button"
+                        onClick={addModule}
+                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center"
+                      >
+                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Add Module
+                      </button>
                     </div>
                     
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem' }}>
-                      Course Modules ({modules.length} modules)
-                    </h2>
-                    
-                    {modules.map((module) => (
-                      <div key={module.id} style={styles.moduleContainer}>
-                        <div style={styles.moduleHeader}>
-                          <h3 style={styles.moduleTitle}>Module {module.order || module.id}</h3>
+                    {modules.map((module, moduleIndex) => (
+                      <div key={module.id} className="mb-8 border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200">
+                        <div className="bg-gradient-to-r from-indigo-50 to-white border-b border-gray-200 p-4">
+                          <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-semibold text-indigo-900">Module {moduleIndex + 1}</h3>
+                            <button 
+                              type="button"
+                              onClick={() => deleteModule(module.id)}
+                              className="text-red-600 hover:text-red-800 focus:outline-none p-1 rounded-full hover:bg-red-50 transition-colors duration-200"
+                              title="Delete module"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                              </svg>
+                            </button>
+                          </div>
                         </div>
-                        <div style={styles.moduleBody}>
-                          <div style={styles.inputGroup}>
-                            <label style={styles.inputLabel} htmlFor={`module-title-${module.id}`}>Module Title*</label>
+                        
+                        <div className="p-4">
+                          <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Module Title</label>
                             <input
-                              id={`module-title-${module.id}`}
-                              style={styles.input}
                               type="text"
-                              placeholder="e.g. Introduction to React Hooks"
-                              value={module.title || ''}
+                              value={module.title}
                               onChange={(e) => handleModuleChange(module.id, 'title', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                              placeholder="Enter module title"
                             />
                           </div>
                           
-                          <div style={styles.inputGroup}>
-                            <label style={styles.inputLabel} htmlFor={`module-desc-${module.id}`}>Module Description</label>
+                          <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Module Description</label>
                             <textarea
-                              id={`module-desc-${module.id}`}
-                              style={styles.textarea}
-                              placeholder="Describe what students will learn in this module..."
-                              value={module.description || ''}
+                              value={module.description}
                               onChange={(e) => handleModuleChange(module.id, 'description', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                              rows="2"
+                              placeholder="Enter module description"
                             ></textarea>
                           </div>
-                          
-                          <h4 style={{ fontSize: '1rem', fontWeight: 500, marginBottom: '1rem', marginTop: '1.5rem' }}>
-                            Sections ({module.sections ? module.sections.length : 0})
-                          </h4>
+                        </div>
+                        
+                        {/* Sections */}
+                        <div className="mb-4">
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="text-md font-medium text-gray-700">Sections ({module.sections?.length || 0})</h4>
+                            <button 
+                              type="button"
+                              onClick={() => addSection(module.id)}
+                              className="px-3 py-1.5 bg-indigo-100 text-indigo-700 text-sm rounded-md hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-opacity-50 transition-colors duration-200 flex items-center font-medium"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                              </svg>
+                              Add Section
+                            </button>
+                          </div>
                           
                           {module.sections && module.sections.map((section) => (
-                            <div key={section.id} style={styles.sectionContainer}>
-                              <div style={styles.inputGroup}>
-                                <label style={styles.inputLabel} htmlFor={`section-title-${module.id}-${section.id}`}>
-                                  Section Title
-                                </label>
+                            <div key={section.id} className="mb-6 border-l-2 border-indigo-200 pl-4 pb-4 pt-2 hover:border-indigo-400 transition-colors duration-200">
+                              <div className="flex justify-between items-center mb-2">
+                                <h5 className="text-sm font-medium text-indigo-800">Section {section.order}</h5>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm('Are you sure you want to delete this section?')) {
+                                      setModules(prevModules => 
+                                        prevModules.map(m => {
+                                          if (m.id === module.id) {
+                                            return {
+                                              ...m,
+                                              sections: m.sections.filter(s => s.id !== section.id)
+                                            };
+                                          }
+                                          return m;
+                                        })
+                                      );
+                                    }
+                                  }}
+                                  className="text-red-500 hover:text-red-700 focus:outline-none p-1 rounded-full hover:bg-red-50 transition-colors duration-200"
+                                  title="Delete section"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                  </svg>
+                                </button>
+                              </div>
+                              
+                              <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Section Title</label>
                                 <input
-                                  id={`section-title-${module.id}-${section.id}`}
-                                  style={styles.input}
                                   type="text"
-                                  placeholder="e.g. useState Hook"
-                                  value={section.title || ''}
+                                  value={section.title}
                                   onChange={(e) => handleSectionChange(module.id, section.id, 'title', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                                  placeholder="Enter section title"
                                 />
                               </div>
                               
-                              <div style={styles.inputGroup}>
-                                <label style={styles.inputLabel} htmlFor={`section-desc-${module.id}-${section.id}`}>
-                                  Section Description
-                                </label>
+                              <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Section Description</label>
                                 <textarea
-                                  id={`section-desc-${module.id}-${section.id}`}
-                                  style={styles.textarea}
-                                  placeholder="Briefly describe this section..."
-                                  value={section.description || ''}
+                                  value={section.description}
                                   onChange={(e) => handleSectionChange(module.id, section.id, 'description', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200" 
+                                  rows="2"
+                                  placeholder="Enter section description"
                                 ></textarea>
                               </div>
                               
-                              <div style={styles.inputGroup}>
-                                <label style={styles.inputLabel} htmlFor={`content-type-${module.id}-${section.id}`}>
-                                  Content Type
-                                </label>
+                              <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Content Type</label>
                                 <select
-                                  id={`content-type-${module.id}-${section.id}`}
-                                  style={styles.select}
                                   value={section.content_type || 'video'}
                                   onChange={(e) => handleSectionChange(module.id, section.id, 'content_type', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
                                 >
                                   <option value="video">Video</option>
                                   <option value="pdf">PDF Document</option>
                                   <option value="both">Both Video & PDF</option>
+                                  <option value="text">Text Only</option>
                                 </select>
                               </div>
                               
                               {(section.content_type === 'video' || section.content_type === 'both') && (
-                                <div style={styles.inputGroup}>
-                                  <label style={styles.inputLabel} htmlFor={`video-url-${module.id}-${section.id}`}>
-                                    YouTube Video URL
-                                  </label>
-                                  <input
-                                    id={`video-url-${module.id}-${section.id}`}
-                                    style={styles.input}
-                                    type="url"
-                                    placeholder="e.g. https://youtube.com/watch?v=..."
-                                    value={section.video_url || ''}
-                                    onChange={(e) => handleSectionChange(module.id, section.id, 'video_url', e.target.value)}
-                                  />
+                                <div className="mb-4">
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">YouTube Video URL</label>
+                                  <div className="flex">
+                                    <input
+                                      type="url"
+                                      value={section.video_url || ''}
+                                      onChange={(e) => {
+                                        const videoUrl = e.target.value;
+                                        handleSectionChange(module.id, section.id, 'video_url', videoUrl);
+                                        
+                                        // Extract and store video ID if it's a valid YouTube URL
+                                        if (videoUrl) {
+                                          try {
+                                            let videoId = '';
+                                            if (videoUrl.includes('youtube.com/watch')) {
+                                              const urlParams = new URL(videoUrl).searchParams;
+                                              videoId = urlParams.get('v');
+                                            } else if (videoUrl.includes('youtu.be/')) {
+                                              videoId = videoUrl.split('youtu.be/')[1].split('?')[0];
+                                            } else if (videoUrl.includes('youtube.com/embed/')) {
+                                              videoId = videoUrl.split('youtube.com/embed/')[1].split('?')[0];
+                                            }
+                                            
+                                            if (videoId) {
+                                              handleSectionChange(module.id, section.id, 'video_id', videoId);
+                                            }
+                                          } catch (e) {
+                                            console.error('Error parsing YouTube URL', e);
+                                          }
+                                        }
+                                      }}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                                      placeholder="e.g. https://youtube.com/watch?v=..."
+                                    />
+                                    {section.video_url && (
+                                      <a 
+                                        href={section.video_url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="flex items-center justify-center px-3 bg-indigo-100 text-indigo-700 border border-l-0 border-gray-300 rounded-r-md hover:bg-indigo-200 transition-colors duration-200"
+                                        title="Open video in new tab"
+                                      >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                      </a>
+                                    )}
+                                  </div>
+                                  
+                                  {section.video_url && section.video_id && (
+                                    <div className="mt-2">
+                                      <label className="block text-sm font-medium text-gray-700 mb-1">Video Preview</label>
+                                      <div className="aspect-w-16 aspect-h-9 border border-gray-300 rounded-md overflow-hidden">
+                                        <iframe
+                                          src={`https://www.youtube.com/embed/${section.video_id}`}
+                                          title="YouTube video player"
+                                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                          allowFullScreen
+                                          className="w-full h-full"
+                                        ></iframe>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                               
                               {(section.content_type === 'pdf' || section.content_type === 'both') && (
-                                <div style={styles.inputGroup}>
-                                  <label style={styles.inputLabel} htmlFor={`pdf-url-${module.id}-${section.id}`}>
-                                    PDF Document URL
-                                  </label>
-                                  <input
-                                    id={`pdf-url-${module.id}-${section.id}`}
-                                    style={styles.input}
-                                    type="url"
-                                    placeholder="e.g. https://example.com/document.pdf"
-                                    value={section.pdf_url || ''}
-                                    onChange={(e) => handleSectionChange(module.id, section.id, 'pdf_url', e.target.value)}
-                                  />
+                                <div className="mb-4">
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">PDF Document</label>
+                                  <div className="flex flex-col space-y-2">
+                                    <div className="flex items-center">
+                                      <input
+                                        type="file"
+                                        accept=".pdf"
+                                        onChange={(e) => {
+                                          const file = e.target.files[0];
+                                          if (file) {
+                                            // Create a unique temporary id for the file for preview purposes
+                                            const tempFileId = `pdf_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+                                            
+                                            // Store the file in the module state
+                                            handleSectionChange(module.id, section.id, 'pdf_file', file);
+                                            
+                                            // Store a temporary URL for preview
+                                            const tempUrl = URL.createObjectURL(file);
+                                            handleSectionChange(module.id, section.id, 'pdf_temp_url', tempUrl);
+                                            
+                                            // Set the filename for display
+                                            handleSectionChange(module.id, section.id, 'pdf_filename', file.name);
+                                          }
+                                        }}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                                      />
+                                    </div>
+                                    {section.pdf_filename && (
+                                      <div className="flex items-center mt-2 text-sm text-gray-600">
+                                        <svg className="w-4 h-4 mr-1 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        <span>{section.pdf_filename}</span>
+                                        {section.pdf_temp_url && (
+                                          <a 
+                                            href={section.pdf_temp_url} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="ml-2 text-indigo-600 hover:text-indigo-800"
+                                            title="Preview PDF"
+                                          >
+                                            Preview
+                                          </a>
+                                        )}
+                                      </div>
+                                    )}
+                                    {section.pdf_url && !section.pdf_filename && (
+                                      <div className="flex items-center mt-2 text-sm text-gray-600">
+                                        <svg className="w-4 h-4 mr-1 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        <span>Previously uploaded PDF</span>
+                                        <a 
+                                          href={section.pdf_url} 
+                                          target="_blank" 
+                                          rel="noopener noreferrer"
+                                          className="ml-2 text-indigo-600 hover:text-indigo-800"
+                                          title="View PDF"
+                                        >
+                                          View
+                                        </a>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>
                           ))}
-                          
-                          <button
-                            type="button"
-                            style={styles.button}
-                            onClick={() => addSection(module.id)}
-                          >
-                            + Add Section
-                          </button>
                         </div>
                       </div>
                     ))}
                     
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem' }}>
-                      <button
-                        type="button"
-                        style={styles.button}
-                        onClick={() => setActiveTab('basic')}
-                      >
-                        Back to Basic Info
-                      </button>
+                    <div className="mt-8 flex flex-col md:flex-row justify-between items-center gap-4">
                       <div>
-                        <button
+                        <button 
                           type="button"
-                          style={styles.button}
+                          onClick={() => setActiveTab('basic')}
+                          className="w-full md:w-auto px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-200 font-medium flex items-center justify-center"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+                          </svg>
+                          Back to Basic Info
+                        </button>
+                      </div>
+                      
+                      <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                        <button 
+                          type="button"
+                          onClick={addModule}
+                          className="w-full md:w-auto px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 transition-colors duration-200 font-medium flex items-center justify-center"
+                        >
+                          <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                          </svg>
+                          Add Module
+                        </button>
+                        
+                        <button 
+                          type="button"
                           onClick={() => setActiveTab('quizzes')}
+                          className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-colors duration-200 font-medium flex items-center justify-center"
                         >
                           Next: Edit Quizzes
+                          <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path>
+                          </svg>
                         </button>
+                        
                         <button
                           type="submit"
-                          style={{...styles.button, backgroundColor: '#4CAF50', color: 'white', marginLeft: '0.5rem'}}
+                          className="w-full md:w-auto px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition-colors duration-200 font-medium flex items-center justify-center"
                           disabled={loading}
                         >
-                          {loading ? 'Updating Course...' : 'Update Course'}
+                          {loading ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Updating...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                              </svg>
+                              Update Course
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>

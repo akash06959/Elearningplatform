@@ -22,7 +22,9 @@ from .views import (
     submit_quiz_results,
     save_section_notes,
     unenroll_course,
-    instructor_course_view
+    instructor_course_view,
+    process_section_pdf,
+    update_course_with_files
 )
 
 app_name = 'courses'
@@ -53,6 +55,10 @@ urlpatterns = [
     path('instructor/enrollments/', views.get_course_enrollments, name='course-enrollments'),
     path('instructor/remove-student/<int:student_id>/', views.remove_student, name='remove-student'),
     path('<int:pk>/update_status/', CourseStatusUpdateAPIView.as_view(), name='course-status-update-api'),
+    
+    # PDF File upload endpoints
+    path('instructor/courses/<int:course_id>/sections/<int:section_id>/upload-pdf/', process_section_pdf, name='upload-section-pdf'),
+    path('instructor/courses/<int:course_id>/update-with-files/', update_course_with_files, name='update-course-with-files'),
     
     # Other endpoints
     path('create/', views.CreateCourseAPIView.as_view(), name='course_create_api'),
