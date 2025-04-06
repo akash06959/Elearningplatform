@@ -4,38 +4,41 @@ import { AuthContext } from '../../contexts/AuthContext';
 
 const InstructorRoute = ({ children }) => {
     const { user, authTokens } = useContext(AuthContext);
-
+    
+    // Debug log to see what's happening every time this component renders
     useEffect(() => {
-        console.log('InstructorRoute - Auth Check:', {
+        console.log('InstructorRoute check:', {
             hasAuthTokens: !!authTokens,
-            user,
-            userType: localStorage.getItem('userType'),
-            isInstructor: user?.role === 'instructor'
+            tokenDetails: authTokens ? {
+                access: authTokens.access ? authTokens.access.substring(0, 10) + '...' : 'missing',
+                refresh: authTokens.refresh ? 'present' : 'missing'
+            } : null,
+            user: user ? {
+                username: user.username,
+                role: user.role
+            } : null
         });
-    }, [authTokens, user]);
+    }, [user, authTokens]);
 
-    // If no auth tokens, redirect to login
-    if (!authTokens) {
-        console.log('No auth tokens found, redirecting to login');
-        return <Navigate to="/login" replace />;
-    }
-
-    // Check if user is an instructor
-    const isInstructor = user?.role === 'instructor' || localStorage.getItem('userType') === 'instructor';
-    
-    if (!isInstructor) {
-        console.log('User is not an instructor:', {
-            userRole: user?.role,
-            userType: localStorage.getItem('userType')
+    // Simple combined check - if no tokens or user isn't an instructor, redirect
+    if (!authTokens || !user || user.role !== 'instructor') {
+        // Only log when there's a real issue
+        console.log('Access denied to instructor route:', { 
+            hasAuthTokens: !!authTokens,
+            isLoggedIn: !!user,
+            role: user?.role,
+            redirecting: !authTokens || !user ? 'to login' : 'to student dashboard'
         });
-        return <Navigate to="/std_dashboard" replace />;
+        
+        if (!authTokens || !user) {
+            return <Navigate to="/login" replace />;
+        } else {
+            return <Navigate to="/student/dashboard" replace />;
+        }
     }
-
-    console.log('Access granted to instructor route:', {
-        username: user?.username,
-        role: user?.role
-    });
     
+    // User is authenticated and is an instructor, render the children
+    console.log('✅ InstructorRoute: Access granted to instructor route');
     return children;
 };
 

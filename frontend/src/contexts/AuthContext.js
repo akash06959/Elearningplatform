@@ -1,7 +1,7 @@
-import { createContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useState, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export const AuthContext = createContext();
+export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
     const [authTokens, setAuthTokens] = useState(() => 
@@ -9,20 +9,45 @@ export const AuthProvider = ({ children }) => {
             ? JSON.parse(localStorage.getItem('authTokens'))
             : null
     );
-    const [user, setUser] = useState(() =>
-        localStorage.getItem('user')
-            ? JSON.parse(localStorage.getItem('user'))
-            : null
-    );
+    
+    const [user, setUser] = useState(() => {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                return JSON.parse(userStr);
+            } catch (e) {
+                console.error('Error parsing user from localStorage:', e);
+                return null;
+            }
+        }
+        return null;
+    });
 
     const navigate = useNavigate();
 
-    const loginUser = (userData, tokens) => {
-        setAuthTokens(tokens);
-        setUser(userData);
+    const loginUser = async (userData, tokens) => {
+        console.log('LoginUser called with:', { userData, tokens });
+        
+        // Store tokens
         localStorage.setItem('authTokens', JSON.stringify(tokens));
-        localStorage.setItem('user', JSON.stringify(userData));
-        localStorage.setItem('userType', userData.role);
+        setAuthTokens(tokens);
+
+        // Store user info with consistent role field
+        const userInfo = {
+            username: userData.username,
+            role: userData.user_type?.toLowerCase(),
+            email: userData.email,
+            id: userData.id,
+            ...userData,
+        };
+        
+        localStorage.setItem('user', JSON.stringify(userInfo));
+        setUser(userInfo);
+
+        console.log('User state updated:', userInfo);
+        
+        // Return the dashboard path based on role
+        return userInfo.role === 'instructor' ? '/instructor/dashboard' : '/student/dashboard';
     };
 
     const logoutUser = useCallback(() => {
@@ -34,38 +59,13 @@ export const AuthProvider = ({ children }) => {
         navigate('/login');
     }, [navigate]);
 
-    useEffect(() => {
-        // If we have tokens but no user data, try to get user data from tokens
-        if (authTokens && !user) {
-            try {
-                const token = authTokens.access;
-                const base64Url = token.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
-                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-                }).join(''));
-                
-                const payload = JSON.parse(jsonPayload);
-                const userData = {
-                    username: payload.username || payload.user_id,
-                    role: localStorage.getItem('userType') || 'student'
-                };
-                setUser(userData);
-                localStorage.setItem('user', JSON.stringify(userData));
-            } catch (error) {
-                console.error('Error decoding token:', error);
-                logoutUser();
-            }
-        }
-    }, [authTokens, user, logoutUser]);
-
     const contextData = {
         user,
         setUser,
         authTokens,
         setAuthTokens,
         loginUser,
-        logoutUser,
+        logoutUser
     };
 
     return (
@@ -73,4 +73,13 @@ export const AuthProvider = ({ children }) => {
             {children}
         </AuthContext.Provider>
     );
+};
+
+// Custom hook to use the auth context
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
 }; 

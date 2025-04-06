@@ -1,0 +1,1613 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { courseAPI } from '../../services/api';
+
+function EditCourse() {
+  const { courseId } = useParams();
+  const navigate = useNavigate();
+  const { user, authTokens } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [activeTab, setActiveTab] = useState('basic');
+  const [modules, setModules] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
+  const [courseData, setCourseData] = useState({
+    title: '',
+    description: '',
+    price: '',
+    category: '',
+    level: 'beginner',
+    duration: '',
+    thumbnail: null,
+    thumbnailPreview: null
+  });
+
+  // Fetch course data and categories when component mounts
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Authentication is already checked by InstructorRoute in App.jsx
+        if (!authTokens?.access) {
+          console.error('Auth tokens missing or invalid');
+          setError('Authentication error. Please log in again.');
+          setLoading(false);
+          return;
+        }
+
+        console.log('Fetching course details for ID:', courseId);
+        
+        try {
+          // Fetch course details using courseAPI
+          const courseDetails = await courseAPI.getCourseById(courseId);
+          console.log('Course details fetched successfully:', courseDetails);
+          
+          // Fetch categories
+          const categoriesResponse = await fetch('http://localhost:8000/api/courses/categories/', {
+          headers: {
+              'Authorization': `Bearer ${authTokens.access}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+
+          if (!categoriesResponse.ok) {
+            throw new Error(`Failed to fetch categories: ${categoriesResponse.status}`);
+          }
+  
+          const categoriesData = await categoriesResponse.json();
+          setCategories(categoriesData);
+          console.log('Categories fetched successfully:', categoriesData);
+  
+          // Set course data
+          setCourseData({
+            title: courseDetails.title || '',
+            description: courseDetails.description || '',
+            price: courseDetails.price || '',
+            category: courseDetails.category?.id || '',
+            level: courseDetails.difficulty_level || 'beginner',
+            duration: courseDetails.duration_in_weeks || '',
+            thumbnail: null,
+            thumbnailPreview: courseDetails.thumbnail_url || courseDetails.thumbnail || null
+          });
+          
+          // Set modules data
+          if (courseDetails.modules && courseDetails.modules.length > 0) {
+            console.log('Setting modules from course details:', courseDetails.modules);
+            setModules(courseDetails.modules.map(module => ({
+              ...module,
+              sections: module.sections || []
+            })));
+          } else {
+            // If no modules found, initialize with default empty modules
+            console.log('No modules found, initializing default modules');
+            const initialModules = [];
+            for (let i = 1; i <= 10; i++) {
+              initialModules.push({
+                id: i,
+                title: `Module ${i}`,
+                description: '',
+                order: i,
+                sections: [{ 
+                  id: 1, 
+                  title: `Section 1`, 
+                  description: '', 
+                  content_type: 'video', 
+                  video_url: '', 
+                  pdf_url: '', 
+                  order: 1 
+                }]
+              });
+            }
+            setModules(initialModules);
+          }
+          
+          // Set quizzes data
+          if (courseDetails.quizzes && courseDetails.quizzes.length > 0) {
+            console.log('Setting quizzes from course details:', courseDetails.quizzes);
+            setQuizzes(courseDetails.quizzes);
+          } else {
+            // If no quizzes found, initialize with default empty quizzes
+            console.log('No quizzes found, initializing default quizzes');
+            const initialQuizzes = [];
+            for (let i = 1; i <= 3; i++) {
+              initialQuizzes.push({
+                id: i,
+                title: `Quiz ${i}`,
+                description: `Quiz after module ${i * 3}`,
+                module_id: i * 3,
+                questions: [
+                  { 
+                    id: 1, 
+                    question: 'Question 1', 
+                    options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'], 
+                    correct_option: 0 
+                  }
+                ]
+              });
+            }
+            setQuizzes(initialQuizzes);
+          }
+  
+          setError('');
+        } catch (error) {
+          console.error('Error fetching course data:', error);
+          setError(`Failed to load course data: ${error.message}`);
+        }
+      } catch (err) {
+        console.error('Error in fetchData:', err);
+        setError(err.message || 'Error loading course data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [courseId, authTokens]);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setCourseData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setCourseData(prev => ({
+        ...prev,
+        thumbnail: file,
+        thumbnailPreview: URL.createObjectURL(file)
+      }));
+    }
+  };
+
+  // Module handling functions
+  const handleModuleChange = (moduleId, field, value) => {
+    setModules(prevModules => 
+      prevModules.map(module => 
+        module.id === moduleId 
+          ? { ...module, [field]: value } 
+          : module
+      )
+    );
+  };
+  
+  const handleSectionChange = (moduleId, sectionId, field, value) => {
+    setModules(prevModules => 
+      prevModules.map(module => {
+        if (module.id === moduleId) {
+          return {
+            ...module,
+            sections: module.sections.map(section => 
+              section.id === sectionId 
+                ? { ...section, [field]: value } 
+                : section
+            )
+          };
+        }
+        return module;
+      })
+    );
+  };
+  
+  const addSection = (moduleId) => {
+    setModules(prevModules => 
+      prevModules.map(module => {
+        if (module.id === moduleId) {
+          const newSectionId = module.sections.length > 0 
+            ? Math.max(...module.sections.map(s => s.id)) + 1 
+            : 1;
+          return {
+            ...module,
+            sections: [
+              ...module.sections, 
+              { 
+                id: newSectionId, 
+                title: `Section ${newSectionId}`, 
+                description: '', 
+                content_type: 'video', 
+                video_url: '', 
+                pdf_url: '', 
+                order: newSectionId 
+              }
+            ]
+          };
+        }
+        return module;
+      })
+    );
+  };
+
+  // Quiz handling functions
+  const handleQuizChange = (quizId, field, value) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => 
+        quiz.id === quizId 
+          ? { ...quiz, [field]: value } 
+          : quiz
+      )
+    );
+  };
+  
+  const handleQuestionChange = (quizId, questionId, field, value) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          return {
+            ...quiz,
+            questions: quiz.questions.map(question => 
+              question.id === questionId 
+                ? { ...question, [field]: value } 
+                : question
+            )
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+  
+  const handleOptionChange = (quizId, questionId, optionIndex, value) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          return {
+            ...quiz,
+            questions: quiz.questions.map(question => {
+              if (question.id === questionId) {
+                const newOptions = [...question.options];
+                newOptions[optionIndex] = value;
+                return {
+                  ...question,
+                  options: newOptions
+                };
+              }
+              return question;
+            })
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+  
+  const setCorrectOption = (quizId, questionId, optionIndex) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          return {
+            ...quiz,
+            questions: quiz.questions.map(question => 
+              question.id === questionId 
+                ? { ...question, correct_option: optionIndex } 
+                : question
+            )
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+  
+  const addQuestion = (quizId) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          const newQuestionId = quiz.questions.length > 0
+            ? Math.max(...quiz.questions.map(q => q.id)) + 1
+            : 1;
+          return {
+            ...quiz,
+            questions: [
+              ...quiz.questions, 
+              { 
+                id: newQuestionId, 
+                question: `Question ${newQuestionId}`, 
+                options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'], 
+                correct_option: 0 
+              }
+            ]
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      if (!authTokens?.access) {
+        setError('Authentication token missing or invalid. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
+      const formData = new FormData();
+
+      // Append all form data
+      formData.append('title', courseData.title);
+      formData.append('description', courseData.description);
+      formData.append('price', courseData.price);
+      formData.append('category', courseData.category);
+      formData.append('difficulty_level', courseData.level);
+      formData.append('duration_in_weeks', courseData.duration);
+      if (courseData.thumbnail) {
+        formData.append('thumbnail', courseData.thumbnail);
+      }
+      
+      // Add modules and their sections
+      // Make sure modules JSON is properly structured
+      const modulesData = modules
+        .filter(module => module.title.trim() !== '') // Filter out empty modules
+        .map(module => ({
+          id: module.id,
+          title: module.title,
+          description: module.description,
+          order: module.order || module.id,
+          sections: module.sections
+            .filter(section => section.title.trim() !== '') // Filter out empty sections
+            .map(section => ({
+              id: section.id,
+              title: section.title,
+              description: section.description,
+              content_type: section.content_type,
+              video_url: section.video_url || '',
+              pdf_url: section.pdf_url || '',
+              order: section.order
+            }))
+        }));
+        
+      console.log('Modules data before stringify:', modulesData);
+      
+      // Only append modules if there are valid ones
+      if (modulesData.length > 0) {
+        formData.append('modules', JSON.stringify(modulesData));
+      }
+      
+      // Add quizzes - make sure quizzes JSON is properly structured
+      const quizzesData = quizzes
+        .filter(quiz => quiz.title.trim() !== '') // Filter out empty quizzes
+        .map(quiz => ({
+          id: quiz.id,
+          title: quiz.title,
+          description: quiz.description || '',
+          module_id: quiz.module_id,
+          questions: quiz.questions
+            .filter(question => question.question.trim() !== '') // Filter out empty questions
+            .map(question => ({
+              id: question.id,
+              question: question.question,
+              options: question.options.filter(option => option.trim() !== ''), // Filter out empty options
+              correct_option: question.correct_option
+            }))
+        }));
+        
+      console.log('Quizzes data before stringify:', quizzesData);
+      
+      // Only append quizzes if there are valid ones
+      if (quizzesData.length > 0) {
+        formData.append('quizzes', JSON.stringify(quizzesData));
+      }
+
+      console.log('Sending update request for course:', courseId);
+      
+      // Log each key-value pair in the FormData
+      for (let [key, value] of formData.entries()) {
+        if (key === 'modules' || key === 'quizzes') {
+          console.log(`${key}: ${value.substring(0, 100)}...`); // Log just first 100 chars of JSON
+        } else if (key === 'thumbnail') {
+          console.log(`${key}: [File object]`);
+        } else {
+          console.log(`${key}: ${value}`);
+        }
+      }
+      
+      try {
+        // Use courseAPI to update the course
+        const response = await courseAPI.updateCourse(courseId, formData);
+        console.log('Course update successful:', response);
+        
+        setSuccess('Course updated successfully!');
+        
+        // Redirect to instructor courses page after a delay
+        setTimeout(() => {
+          navigate('/instructor/courses');
+        }, 2000);
+      } catch (apiError) {
+        console.error('API Error:', apiError);
+        
+        // Check if error message contains JSON data from a 400 response
+        if (apiError.message.includes('Bad Request:')) {
+          try {
+            const errorData = JSON.parse(apiError.message.substring(apiError.message.indexOf('{')));
+            let errorMessage = 'Course update failed with the following errors:\n';
+            
+            // Format error messages from the response
+            Object.entries(errorData).forEach(([field, errors]) => {
+              if (Array.isArray(errors)) {
+                errorMessage += `• ${field}: ${errors.join(', ')}\n`;
+              } else if (typeof errors === 'object') {
+                errorMessage += `• ${field}: ${JSON.stringify(errors)}\n`;
+              } else {
+                errorMessage += `• ${field}: ${errors}\n`;
+              }
+            });
+            
+            setError(errorMessage);
+          } catch (jsonError) {
+            // If parsing fails, use the original error message
+            setError(`Failed to update course: ${apiError.message}`);
+          }
+        } else {
+          setError(`Failed to update course: ${apiError.message}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error in course update:', error);
+      setError(`Course update failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Styles
+  const styles = {
+    container: {
+      minHeight: '100vh',
+      backgroundColor: '#f9fafb',
+    },
+    main: {
+      maxWidth: '56rem',
+      margin: '0 auto',
+      padding: '2.5rem 1rem',
+    },
+    card: {
+      backgroundColor: 'white',
+      borderRadius: '0.5rem',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+      padding: '1.5rem',
+    },
+    header: {
+      marginBottom: '1.5rem',
+    },
+    title: {
+      fontSize: '1.5rem',
+      fontWeight: 'bold',
+      color: '#1d4ed8',
+      marginBottom: '0.5rem',
+    },
+    subtitle: {
+      color: '#4b5563',
+    },
+    error: {
+      marginBottom: '1.5rem',
+      backgroundColor: '#fef2f2',
+      border: '1px solid #fca5a5',
+      color: '#b91c1c',
+      padding: '1rem',
+      borderRadius: '0.375rem',
+      whiteSpace: 'pre-line'
+    },
+    success: {
+      marginBottom: '1.5rem',
+      backgroundColor: '#f0fdf4',
+      border: '1px solid #86efac',
+      color: '#166534',
+      padding: '1rem',
+      borderRadius: '0.375rem',
+    },
+    form: {
+      display: 'grid',
+      gridTemplateColumns: '1fr',
+      gap: '1.5rem',
+    },
+    formGroup: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.5rem',
+    },
+    label: {
+      display: 'block',
+      fontSize: '0.875rem',
+      fontWeight: '500',
+      color: '#374151',
+    },
+    input: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.375rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+    },
+    textarea: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.375rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+      minHeight: '8rem',
+    },
+    select: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.375rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+      backgroundColor: 'white',
+    },
+    button: {
+      backgroundColor: '#1d4ed8',
+      color: 'white',
+      padding: '0.75rem 1.5rem',
+      borderRadius: '0.375rem',
+      fontSize: '1rem',
+      fontWeight: '500',
+      border: 'none',
+      cursor: 'pointer',
+    },
+    thumbnailPreview: {
+      width: '100%',
+      maxWidth: '300px',
+      height: 'auto',
+      borderRadius: '0.375rem',
+      marginTop: '0.5rem',
+    },
+    tabButton: {
+      padding: '0.75rem 1rem',
+      borderRadius: '0.375rem 0.375rem 0 0',
+      border: 'none',
+      backgroundColor: '#f1f5f9',
+      cursor: 'pointer',
+      fontWeight: 500,
+      color: '#64748b',
+      transition: 'all 0.2s',
+      marginRight: '0.5rem',
+    },
+    activeTabButton: {
+      backgroundColor: 'white',
+      color: '#1d4ed8',
+      borderBottom: '2px solid #1d4ed8',
+    },
+    tabContent: {
+      backgroundColor: 'white',
+      padding: '1.5rem',
+      borderRadius: '0 0.375rem 0.375rem 0.375rem',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+    },
+    moduleContainer: {
+      marginBottom: '1.5rem',
+      border: '1px solid #e2e8f0',
+      borderRadius: '0.375rem',
+      overflow: 'hidden',
+    },
+    moduleHeader: {
+      padding: '1rem',
+      backgroundColor: '#f8fafc',
+      borderBottom: '1px solid #e2e8f0',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    moduleTitle: {
+      fontWeight: 600,
+      color: '#334155',
+      margin: 0,
+    },
+    moduleBody: {
+      padding: '1rem',
+    },
+    sectionContainer: {
+      marginBottom: '1rem',
+      padding: '0.75rem',
+      border: '1px solid #e2e8f0',
+      borderRadius: '0.375rem',
+      backgroundColor: '#f9fafb',
+    },
+    inputGroup: {
+      marginBottom: '1rem',
+    },
+    inputLabel: {
+      display: 'block',
+      marginBottom: '0.5rem',
+      fontWeight: 500,
+      color: '#4b5563',
+    },
+    progressBar: {
+      height: '0.5rem',
+      backgroundColor: '#e2e8f0',
+      borderRadius: '0.25rem',
+      overflow: 'hidden',
+      marginBottom: '1rem',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: '#1d4ed8',
+      transition: 'width 0.3s ease',
+    },
+    questionContainer: {
+      marginBottom: '1.5rem',
+      padding: '1rem',
+      border: '1px solid #e2e8f0',
+      borderRadius: '0.375rem',
+      backgroundColor: '#f8fafc',
+    },
+    optionContainer: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      marginBottom: '0.5rem',
+    },
+    radio: {
+      marginRight: '0.5rem',
+    },
+    loadingOverlay: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(255, 255, 255, 0.7)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 1000,
+    },
+  };
+
+  if (loading) {
+    return (
+      <div style={{ ...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.container}>
+      <main style={styles.main}>
+        <div style={styles.card}>
+          <div style={styles.header}>
+            <h1 style={styles.title}>Edit Course</h1>
+            <p style={styles.subtitle}>Update your course details</p>
+          </div>
+          
+          {error && <div style={styles.error}>{error}</div>}
+          {success && <div style={styles.success}>{success}</div>}
+          
+          {loading ? (
+            <div style={styles.loadingOverlay}>
+              <div>Loading course data...</div>
+            </div>
+          ) : (
+            <div>
+              <div className="tabs" style={{ marginBottom: '1rem' }}>
+                <button 
+                  style={{ 
+                    ...styles.tabButton, 
+                    ...(activeTab === 'basic' ? styles.activeTabButton : {}) 
+                  }}
+                  onClick={() => setActiveTab('basic')}
+                >
+                  Basic Info
+                </button>
+                <button 
+                  style={{ 
+                    ...styles.tabButton, 
+                    ...(activeTab === 'modules' ? styles.activeTabButton : {}) 
+                  }}
+                  onClick={() => setActiveTab('modules')}
+                >
+                  Modules & Content
+                </button>
+                <button 
+                  style={{ 
+                    ...styles.tabButton, 
+                    ...(activeTab === 'quizzes' ? styles.activeTabButton : {}) 
+                  }}
+                  onClick={() => setActiveTab('quizzes')}
+                >
+                  Quizzes
+                </button>
+              </div>
+              
+              <form onSubmit={handleSubmit}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Title</label>
+                  <input
+                    type="text"
+                    name="title"
+                    value={courseData.title}
+                    onChange={handleInputChange}
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Description</label>
+                  <textarea
+                    name="description"
+                    value={courseData.description}
+                    onChange={handleInputChange}
+                    style={styles.textarea}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Price</label>
+                  <input
+                    type="number"
+                    name="price"
+                    value={courseData.price}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="0.01"
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Category</label>
+                  <select
+                    name="category"
+                    value={courseData.category}
+                    onChange={handleInputChange}
+                    style={styles.select}
+                  >
+                    <option value="">Select a category</option>
+                    {categories.map(category => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Duration (in weeks)</label>
+                  <input
+                    type="number"
+                    name="duration"
+                    value={courseData.duration}
+                    onChange={handleInputChange}
+                    min="1"
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Difficulty Level</label>
+                  <select
+                    name="level"
+                    value={courseData.level}
+                    onChange={handleInputChange}
+                    style={styles.select}
+                  >
+                    <option value="beginner">Beginner</option>
+                    <option value="intermediate">Intermediate</option>
+                    <option value="advanced">Advanced</option>
+                  </select>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Course Thumbnail</label>
+                  <input
+                    type="file"
+                    name="thumbnail"
+                    onChange={handleFileChange}
+                    accept="image/*"
+                    style={styles.input}
+                  />
+                  {courseData.thumbnailPreview && (
+                    <img
+                      src={courseData.thumbnailPreview}
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { courseAPI } from '../../services/api';
+
+function EditCourse() {
+  const { courseId } = useParams();
+  const navigate = useNavigate();
+  const { user, authTokens } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [activeTab, setActiveTab] = useState('basic');
+  const [modules, setModules] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
+  const [courseData, setCourseData] = useState({
+    title: '',
+    description: '',
+    price: '',
+    category: '',
+    level: 'beginner',
+    duration: '',
+    thumbnail: null,
+    thumbnailPreview: null
+  });
+
+  // Fetch course data and categories when component mounts
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Authentication is already checked by InstructorRoute in App.jsx
+        if (!authTokens?.access) {
+          console.error('Auth tokens missing or invalid');
+          setError('Authentication error. Please log in again.');
+          setLoading(false);
+          return;
+        }
+
+        console.log('Fetching course details for ID:', courseId);
+        
+        try {
+          // Fetch course details using courseAPI
+          const courseDetails = await courseAPI.getCourseById(courseId);
+          console.log('Course details fetched successfully:', courseDetails);
+        
+        // Fetch categories
+        const categoriesResponse = await fetch('http://localhost:8000/api/courses/categories/', {
+          headers: {
+              'Authorization': `Bearer ${authTokens.access}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!categoriesResponse.ok) {
+            throw new Error(`Failed to fetch categories: ${categoriesResponse.status}`);
+        }
+
+        const categoriesData = await categoriesResponse.json();
+        setCategories(categoriesData);
+          console.log('Categories fetched successfully:', categoriesData);
+
+        // Set course data
+        setCourseData({
+          title: courseDetails.title || '',
+          description: courseDetails.description || '',
+          price: courseDetails.price || '',
+          category: courseDetails.category?.id || '',
+          level: courseDetails.difficulty_level || 'beginner',
+          duration: courseDetails.duration_in_weeks || '',
+          thumbnail: null,
+            thumbnailPreview: courseDetails.thumbnail_url || courseDetails.thumbnail || null
+          });
+          
+          // Set modules data
+          if (courseDetails.modules && courseDetails.modules.length > 0) {
+            console.log('Setting modules from course details:', courseDetails.modules);
+            setModules(courseDetails.modules.map(module => ({
+              ...module,
+              sections: module.sections || []
+            })));
+          } else {
+            // If no modules found, initialize with default empty modules
+            console.log('No modules found, initializing default modules');
+            const initialModules = [];
+            for (let i = 1; i <= 10; i++) {
+              initialModules.push({
+                id: i,
+                title: `Module ${i}`,
+                description: '',
+                order: i,
+                sections: [{ 
+                  id: 1, 
+                  title: `Section 1`, 
+                  description: '', 
+                  content_type: 'video', 
+                  video_url: '', 
+                  pdf_url: '', 
+                  order: 1 
+                }]
+              });
+            }
+            setModules(initialModules);
+          }
+          
+          // Set quizzes data
+          if (courseDetails.quizzes && courseDetails.quizzes.length > 0) {
+            console.log('Setting quizzes from course details:', courseDetails.quizzes);
+            setQuizzes(courseDetails.quizzes);
+          } else {
+            // If no quizzes found, initialize with default empty quizzes
+            console.log('No quizzes found, initializing default quizzes');
+            const initialQuizzes = [];
+            for (let i = 1; i <= 3; i++) {
+              initialQuizzes.push({
+                id: i,
+                title: `Quiz ${i}`,
+                description: `Quiz after module ${i * 3}`,
+                module_id: i * 3,
+                questions: [
+                  { 
+                    id: 1, 
+                    question: 'Question 1', 
+                    options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'], 
+                    correct_option: 0 
+                  }
+                ]
+              });
+            }
+            setQuizzes(initialQuizzes);
+          }
+
+        setError('');
+        } catch (error) {
+          console.error('Error fetching course data:', error);
+          setError(`Failed to load course data: ${error.message}`);
+        }
+      } catch (err) {
+        console.error('Error in fetchData:', err);
+        setError(err.message || 'Error loading course data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [courseId, authTokens]);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setCourseData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setCourseData(prev => ({
+        ...prev,
+        thumbnail: file,
+        thumbnailPreview: URL.createObjectURL(file)
+      }));
+    }
+  };
+
+  // Module handling functions
+  const handleModuleChange = (moduleId, field, value) => {
+    setModules(prevModules => 
+      prevModules.map(module => 
+        module.id === moduleId 
+          ? { ...module, [field]: value } 
+          : module
+      )
+    );
+  };
+  
+  const handleSectionChange = (moduleId, sectionId, field, value) => {
+    setModules(prevModules => 
+      prevModules.map(module => {
+        if (module.id === moduleId) {
+          return {
+            ...module,
+            sections: module.sections.map(section => 
+              section.id === sectionId 
+                ? { ...section, [field]: value } 
+                : section
+            )
+          };
+        }
+        return module;
+      })
+    );
+  };
+  
+  const addSection = (moduleId) => {
+    setModules(prevModules => 
+      prevModules.map(module => {
+        if (module.id === moduleId) {
+          const newSectionId = module.sections.length > 0 
+            ? Math.max(...module.sections.map(s => s.id)) + 1 
+            : 1;
+          return {
+            ...module,
+            sections: [
+              ...module.sections, 
+              { 
+                id: newSectionId, 
+                title: `Section ${newSectionId}`, 
+                description: '', 
+                content_type: 'video', 
+                video_url: '', 
+                pdf_url: '', 
+                order: newSectionId 
+              }
+            ]
+          };
+        }
+        return module;
+      })
+    );
+  };
+
+  // Quiz handling functions
+  const handleQuizChange = (quizId, field, value) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => 
+        quiz.id === quizId 
+          ? { ...quiz, [field]: value } 
+          : quiz
+      )
+    );
+  };
+  
+  const handleQuestionChange = (quizId, questionId, field, value) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          return {
+            ...quiz,
+            questions: quiz.questions.map(question => 
+              question.id === questionId 
+                ? { ...question, [field]: value } 
+                : question
+            )
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+  
+  const handleOptionChange = (quizId, questionId, optionIndex, value) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          return {
+            ...quiz,
+            questions: quiz.questions.map(question => {
+              if (question.id === questionId) {
+                const newOptions = [...question.options];
+                newOptions[optionIndex] = value;
+                return {
+                  ...question,
+                  options: newOptions
+                };
+              }
+              return question;
+            })
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+  
+  const setCorrectOption = (quizId, questionId, optionIndex) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          return {
+            ...quiz,
+            questions: quiz.questions.map(question => 
+              question.id === questionId 
+                ? { ...question, correct_option: optionIndex } 
+                : question
+            )
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+  
+  const addQuestion = (quizId) => {
+    setQuizzes(prevQuizzes => 
+      prevQuizzes.map(quiz => {
+        if (quiz.id === quizId) {
+          const newQuestionId = quiz.questions.length > 0
+            ? Math.max(...quiz.questions.map(q => q.id)) + 1
+            : 1;
+          return {
+            ...quiz,
+            questions: [
+              ...quiz.questions, 
+              { 
+                id: newQuestionId, 
+                question: `Question ${newQuestionId}`, 
+                options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'], 
+                correct_option: 0 
+              }
+            ]
+          };
+        }
+        return quiz;
+      })
+    );
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      if (!authTokens?.access) {
+        setError('Authentication token missing or invalid. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
+      const formData = new FormData();
+
+      // Append all form data
+      formData.append('title', courseData.title);
+      formData.append('description', courseData.description);
+      formData.append('price', courseData.price);
+      formData.append('category', courseData.category);
+      formData.append('difficulty_level', courseData.level);
+      formData.append('duration_in_weeks', courseData.duration);
+      if (courseData.thumbnail) {
+        formData.append('thumbnail', courseData.thumbnail);
+      }
+
+      // Add modules and their sections
+      // Make sure modules JSON is properly structured
+      const modulesData = modules
+        .filter(module => module.title.trim() !== '') // Filter out empty modules
+        .map(module => ({
+          id: module.id,
+          title: module.title,
+          description: module.description,
+          order: module.order || module.id,
+          sections: module.sections
+            .filter(section => section.title.trim() !== '') // Filter out empty sections
+            .map(section => ({
+              id: section.id,
+              title: section.title,
+              description: section.description,
+              content_type: section.content_type,
+              video_url: section.video_url || '',
+              pdf_url: section.pdf_url || '',
+              order: section.order
+            }))
+        }));
+        
+      console.log('Modules data before stringify:', modulesData);
+      
+      // Only append modules if there are valid ones
+      if (modulesData.length > 0) {
+        formData.append('modules', JSON.stringify(modulesData));
+      }
+      
+      // Add quizzes - make sure quizzes JSON is properly structured
+      const quizzesData = quizzes
+        .filter(quiz => quiz.title.trim() !== '') // Filter out empty quizzes
+        .map(quiz => ({
+          id: quiz.id,
+          title: quiz.title,
+          description: quiz.description || '',
+          module_id: quiz.module_id,
+          questions: quiz.questions
+            .filter(question => question.question.trim() !== '') // Filter out empty questions
+            .map(question => ({
+              id: question.id,
+              question: question.question,
+              options: question.options.filter(option => option.trim() !== ''), // Filter out empty options
+              correct_option: question.correct_option
+            }))
+        }));
+        
+      console.log('Quizzes data before stringify:', quizzesData);
+      
+      // Only append quizzes if there are valid ones
+      if (quizzesData.length > 0) {
+        formData.append('quizzes', JSON.stringify(quizzesData));
+      }
+
+      console.log('Sending update request for course:', courseId);
+      
+      // Log each key-value pair in the FormData
+      for (let [key, value] of formData.entries()) {
+        if (key === 'modules' || key === 'quizzes') {
+          console.log(`${key}: ${value.substring(0, 100)}...`); // Log just first 100 chars of JSON
+        } else if (key === 'thumbnail') {
+          console.log(`${key}: [File object]`);
+        } else {
+          console.log(`${key}: ${value}`);
+        }
+      }
+      
+      try {
+        // Use courseAPI to update the course
+        const response = await courseAPI.updateCourse(courseId, formData);
+        console.log('Course update successful:', response);
+        
+        setSuccess('Course updated successfully!');
+        
+        // Redirect to instructor courses page after a delay
+        setTimeout(() => {
+      navigate('/instructor/courses');
+        }, 2000);
+      } catch (apiError) {
+        console.error('API Error:', apiError);
+        
+        // Check if error message contains JSON data from a 400 response
+        if (apiError.message.includes('Bad Request:')) {
+          try {
+            const errorData = JSON.parse(apiError.message.substring(apiError.message.indexOf('{')));
+            let errorMessage = 'Course update failed with the following errors:\n';
+            
+            // Format error messages from the response
+            Object.entries(errorData).forEach(([field, errors]) => {
+              if (Array.isArray(errors)) {
+                errorMessage += `• ${field}: ${errors.join(', ')}\n`;
+              } else if (typeof errors === 'object') {
+                errorMessage += `• ${field}: ${JSON.stringify(errors)}\n`;
+              } else {
+                errorMessage += `• ${field}: ${errors}\n`;
+              }
+            });
+            
+            setError(errorMessage);
+          } catch (jsonError) {
+            // If parsing fails, use the original error message
+            setError(`Failed to update course: ${apiError.message}`);
+          }
+        } else {
+          setError(`Failed to update course: ${apiError.message}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error in course update:', error);
+      setError(`Course update failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Styles
+  const styles = {
+    container: {
+      minHeight: '100vh',
+      backgroundColor: '#f9fafb',
+    },
+    main: {
+      maxWidth: '56rem',
+      margin: '0 auto',
+      padding: '2.5rem 1rem',
+    },
+    card: {
+      backgroundColor: 'white',
+      borderRadius: '0.5rem',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+      padding: '1.5rem',
+    },
+    header: {
+      marginBottom: '1.5rem',
+    },
+    title: {
+      fontSize: '1.5rem',
+      fontWeight: 'bold',
+      color: '#1d4ed8',
+      marginBottom: '0.5rem',
+    },
+    subtitle: {
+      color: '#4b5563',
+    },
+    error: {
+      marginBottom: '1.5rem',
+      backgroundColor: '#fef2f2',
+      border: '1px solid #fca5a5',
+      color: '#b91c1c',
+      padding: '1rem',
+      borderRadius: '0.375rem',
+      whiteSpace: 'pre-line'
+    },
+    success: {
+      marginBottom: '1.5rem',
+      backgroundColor: '#f0fdf4',
+      border: '1px solid #86efac',
+      color: '#166534',
+      padding: '1rem',
+      borderRadius: '0.375rem',
+    },
+    form: {
+      display: 'grid',
+      gridTemplateColumns: '1fr',
+      gap: '1.5rem',
+    },
+    formGroup: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.5rem',
+    },
+    label: {
+      display: 'block',
+      fontSize: '0.875rem',
+      fontWeight: '500',
+      color: '#374151',
+    },
+    input: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.375rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+    },
+    textarea: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.375rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+      minHeight: '8rem',
+    },
+    select: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.375rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+      backgroundColor: 'white',
+    },
+    button: {
+      backgroundColor: '#1d4ed8',
+      color: 'white',
+      padding: '0.75rem 1.5rem',
+      borderRadius: '0.375rem',
+      fontSize: '1rem',
+      fontWeight: '500',
+      border: 'none',
+      cursor: 'pointer',
+    },
+    thumbnailPreview: {
+      width: '100%',
+      maxWidth: '300px',
+      height: 'auto',
+      borderRadius: '0.375rem',
+      marginTop: '0.5rem',
+    },
+    tabButton: {
+      padding: '0.75rem 1rem',
+      borderRadius: '0.375rem 0.375rem 0 0',
+      border: 'none',
+      backgroundColor: '#f1f5f9',
+      cursor: 'pointer',
+      fontWeight: 500,
+      color: '#64748b',
+      transition: 'all 0.2s',
+      marginRight: '0.5rem',
+    },
+    activeTabButton: {
+      backgroundColor: 'white',
+      color: '#1d4ed8',
+      borderBottom: '2px solid #1d4ed8',
+    },
+    tabContent: {
+      backgroundColor: 'white',
+      padding: '1.5rem',
+      borderRadius: '0 0.375rem 0.375rem 0.375rem',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+    },
+    moduleContainer: {
+      marginBottom: '1.5rem',
+      border: '1px solid #e2e8f0',
+      borderRadius: '0.375rem',
+      overflow: 'hidden',
+    },
+    moduleHeader: {
+      padding: '1rem',
+      backgroundColor: '#f8fafc',
+      borderBottom: '1px solid #e2e8f0',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    moduleTitle: {
+      fontWeight: 600,
+      color: '#334155',
+      margin: 0,
+    },
+    moduleBody: {
+      padding: '1rem',
+    },
+    sectionContainer: {
+      marginBottom: '1rem',
+      padding: '0.75rem',
+      border: '1px solid #e2e8f0',
+      borderRadius: '0.375rem',
+      backgroundColor: '#f9fafb',
+    },
+    inputGroup: {
+      marginBottom: '1rem',
+    },
+    inputLabel: {
+      display: 'block',
+      marginBottom: '0.5rem',
+      fontWeight: 500,
+      color: '#4b5563',
+    },
+    progressBar: {
+      height: '0.5rem',
+      backgroundColor: '#e2e8f0',
+      borderRadius: '0.25rem',
+      overflow: 'hidden',
+      marginBottom: '1rem',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: '#1d4ed8',
+      transition: 'width 0.3s ease',
+    },
+    questionContainer: {
+      marginBottom: '1.5rem',
+      padding: '1rem',
+      border: '1px solid #e2e8f0',
+      borderRadius: '0.375rem',
+      backgroundColor: '#f8fafc',
+    },
+    optionContainer: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      marginBottom: '0.5rem',
+    },
+    radio: {
+      marginRight: '0.5rem',
+    },
+    loadingOverlay: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(255, 255, 255, 0.7)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 1000,
+    },
+  };
+
+  if (loading) {
+    return (
+      <div style={{ ...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.main}>
+        <div style={styles.card}>
+          <h1 style={styles.title}>Edit Course</h1>
+
+          {error && (
+            <div style={styles.error}>
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={styles.form}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Title</label>
+              <input
+                type="text"
+                name="title"
+                value={courseData.title}
+                onChange={handleInputChange}
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Description</label>
+              <textarea
+                name="description"
+                value={courseData.description}
+                onChange={handleInputChange}
+                style={styles.textarea}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Price</label>
+              <input
+                type="number"
+                name="price"
+                value={courseData.price}
+                onChange={handleInputChange}
+                min="0"
+                step="0.01"
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Category</label>
+              <select
+                name="category"
+                value={courseData.category}
+                onChange={handleInputChange}
+                style={styles.select}
+              >
+                <option value="">Select a category</option>
+                {categories.map(category => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Duration (in weeks)</label>
+              <input
+                type="number"
+                name="duration"
+                value={courseData.duration}
+                onChange={handleInputChange}
+                min="1"
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Difficulty Level</label>
+              <select
+                name="level"
+                value={courseData.level}
+                onChange={handleInputChange}
+                style={styles.select}
+              >
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Course Thumbnail</label>
+              <input
+                type="file"
+                name="thumbnail"
+                onChange={handleFileChange}
+                accept="image/*"
+                style={styles.input}
+              />
+              {courseData.thumbnailPreview && (
+                <img
+                  src={courseData.thumbnailPreview}
+                  alt="Course thumbnail preview"
+                  style={styles.thumbnailPreview}
+                />
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                ...styles.button,
+                opacity: loading ? 0.7 : 1,
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {loading ? 'Saving Changes...' : 'Save Changes'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default EditCourse; 

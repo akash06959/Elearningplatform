@@ -16,9 +16,11 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { authAPI } from '../../services/authAPI';
 import DragPuzzle from './DragPuzzle';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
+  const { loginUser } = useAuth();
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -63,26 +65,18 @@ const Login = () => {
       const response = await authAPI.login(formData);
       console.log('Login response:', response);
 
-      // Store auth tokens
-      const tokens = {
-        access: response.access,
-        refresh: response.refresh
-      };
-      localStorage.setItem('authTokens', JSON.stringify(tokens));
-      
-      // Store user info consistently
-      const userType = formData.user_type.toLowerCase();
-      localStorage.setItem('userType', userType);
-      localStorage.setItem('user', JSON.stringify({
-        username: formData.username,
-        role: userType
-      }));
-
-      console.log('Stored auth data:', {
-        hasTokens: !!localStorage.getItem('authTokens'),
-        storedUserType: localStorage.getItem('userType'),
-        storedUser: JSON.parse(localStorage.getItem('user'))
-      });
+      // Call loginUser from AuthContext to update global state
+      const dashboardPath = await loginUser(
+        {
+          username: formData.username,
+          user_type: formData.user_type,
+          ...response
+        },
+        {
+          access: response.access,
+          refresh: response.refresh
+        }
+      );
 
       toast({
         title: 'Login Successful',
@@ -92,15 +86,22 @@ const Login = () => {
         isClosable: true,
       });
 
-      // Navigate based on user type
-      const dashboardPath = userType === 'instructor' ? '/inst_dashboard' : '/std_dashboard';
-      console.log('Navigation check:', {
-        userType,
-        isInstructor: userType === 'instructor',
-        targetPath: dashboardPath
-      });
+      // Check if there's a saved redirect path
+      const savedPath = sessionStorage.getItem('redirectAfterLogin');
+      
+      // Add a small delay to ensure the toast is visible
+      setTimeout(() => {
+        if (savedPath) {
+          // Clear the saved path
+          sessionStorage.removeItem('redirectAfterLogin');
+          console.log('Redirecting to saved path:', savedPath);
+          window.location.href = savedPath;
+        } else {
+          console.log('Redirecting to dashboard:', dashboardPath);
+          window.location.href = dashboardPath;
+        }
+      }, 1000);
 
-      navigate(dashboardPath);
     } catch (err) {
       console.error('Login error:', err);
       setError(err.message || 'Failed to login. Please try again.');

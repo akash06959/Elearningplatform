@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = 'http://localhost:8000/api';
+const BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:8000/api';
 const MEDIA_URL = 'http://localhost:8000';
 
 // Helper function to process image URLs
@@ -165,14 +165,17 @@ export const courseAPI = {
       console.log('Course ID:', courseId);
       console.log('New Status:', status);
       
-      const response = await api.patch(`/courses/${courseId}/update-status/`, {
-        status: status
+      const response = await api.patch(`/courses/${courseId}/update_status/`, {
+        status: status,
+        is_published: status === 'published'
       });
       
       console.log('Update status response:', response);
+      
+      // Ensure we return a standardized response
       return {
         status: 'success',
-        course: response,
+        course: response.data || response,
         message: `Course ${status === 'published' ? 'published' : 'unpublished'} successfully`
       };
     } catch (error) {
@@ -181,7 +184,7 @@ export const courseAPI = {
         response: error.response?.data,
         status: error.response?.status
       });
-      throw error;
+      throw new Error(error.response?.data?.message || error.message || 'Failed to update course status');
     }
   },
 
@@ -191,58 +194,347 @@ export const courseAPI = {
       console.log('\n=== Getting Course Details ===');
       console.log('Course ID:', courseId);
       
-      const response = await api.get(`/courses/${courseId}/`);
-      console.log('Course details raw response:', response);
-
-      // Process image URLs in the course data
-      const processedResponse = {
-        ...response,
-        thumbnail: processImageUrl(response.thumbnail),
-        cover_image: processImageUrl(response.cover_image),
-        instructor: response.instructor ? {
-          ...response.instructor,
-          avatar: processImageUrl(response.instructor.avatar)
-        } : null
-      };
-
-      console.log('Processed course details:', processedResponse);
-      return processedResponse;
+      // Try multiple endpoints
+      const endpoints = [
+        `/courses/${courseId}/detail/`,
+        `/courses/instructor/courses/${courseId}/`,
+        `/courses/instructor/courses/${courseId}/detail/`,
+        `/courses/${courseId}/`,
+        `/courses/detail/${courseId}/`
+      ];
+      
+      let response = null;
+      let lastError = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint: ${endpoint}`);
+          response = await api.get(endpoint);
+          console.log('Found working endpoint:', endpoint);
+          break;
+        } catch (error) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: error.response?.status,
+            message: error.message
+          });
+          
+          // If not a 404, this is a "real" error with a valid endpoint
+          if (error.response?.status !== 404) {
+            throw error;
+          }
+          
+          lastError = error;
+        }
+      }
+      
+      // If all endpoints failed, throw the last error
+      if (!response) {
+        throw lastError || new Error('All endpoints failed');
+      }
+      
+      console.log('Course details full response:', response);
+      
+      if (!response) {
+        throw new Error('No course data received');
+      }
+      
+      let course = null;
+      
+      if (response.course) {
+        course = response.course;
+      } else {
+        course = response;
+      }
+      
+      // Process image URLs
+      if (course.thumbnail) {
+        course.thumbnail = processImageUrl(course.thumbnail);
+      }
+      if (course.cover_image) {
+        course.cover_image = processImageUrl(course.cover_image);
+      }
+      
+      // Ensure enrollment status is properly set - if not present, try to get it
+      if (course.enrolled === undefined && course.is_enrolled === undefined) {
+        try {
+          console.log('Enrollment status not in course data, checking separately');
+          const enrollmentStatus = await courseAPI.checkEnrollmentStatus(courseId);
+          console.log('Got enrollment status:', enrollmentStatus);
+          course.is_enrolled = enrollmentStatus.isEnrolled;
+          course.enrolled = enrollmentStatus.isEnrolled;
+        } catch (enrollmentError) {
+          console.error('Error getting enrollment status:', enrollmentError);
+          // Default to false to be safe
+          course.is_enrolled = false;
+          course.enrolled = false;
+        }
+      }
+      
+      // Process course modules for learning interface
+      if (course.modules && Array.isArray(course.modules)) {
+        course.modules.forEach(module => {
+          // Ensure each module has proper order and sections
+          module.order = module.order || module.id;
+          
+          if (module.sections && Array.isArray(module.sections)) {
+            module.sections.forEach(section => {
+              // Set defaults for sections
+              section.content_type = section.content_type || 'video';
+              section.video_url = section.video_url || '';
+              section.pdf_url = section.pdf_url || '';
+            });
+          } else {
+            module.sections = [];
+          }
+        });
+        
+        // Sort modules by order
+        course.modules.sort((a, b) => a.order - b.order);
+      } else {
+        course.modules = [];
+      }
+      
+      // Process course quizzes
+      if (course.quizzes && Array.isArray(course.quizzes)) {
+        course.quizzes.forEach(quiz => {
+          // Make sure each quiz has questions
+          if (!quiz.questions || !Array.isArray(quiz.questions)) {
+            quiz.questions = [];
+          }
+        });
+      } else {
+        course.quizzes = [];
+      }
+      
+      console.log('Processed course details:', course);
+      return course;
     } catch (error) {
-      console.error('Error in getCourseById:', error);
-      throw error;
+      console.error('Error in getCourseById:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error('Failed to load course details. Please try again later.');
+    }
+  },
+
+  // Create a new course
+  createCourse: async (courseData) => {
+    try {
+      console.log('\n=== Creating New Course ===');
+      console.log('Course data:', courseData);
+      
+      // Try the primary endpoint
+      try {
+        const response = await api.post('/courses/create/', courseData);
+        console.log('Course creation response:', response);
+        return response;
+      } catch (error) {
+        // If the primary endpoint returns 404, try the alternate endpoint
+        if (error.response?.status === 404) {
+          console.log('Primary endpoint not found, trying alternate endpoint');
+          try {
+            const altResponse = await api.post('/courses/create-course/', courseData);
+            console.log('Alternate endpoint response:', altResponse);
+            return altResponse;
+          } catch (altError) {
+            console.error('Error with alternate endpoint:', {
+              status: altError.response?.status,
+              data: altError.response?.data
+            });
+            
+            // If we get a 400 Bad Request, log detailed error information
+            if (altError.response?.status === 400) {
+              console.error('Bad Request details:', altError.response.data);
+              throw new Error(`Bad Request: ${JSON.stringify(altError.response.data)}`);
+            }
+            throw altError;
+          }
+        }
+        
+        // If we get a 400 Bad Request, log detailed error information
+        if (error.response?.status === 400) {
+          console.error('Bad Request details:', error.response.data);
+          throw new Error(`Bad Request: ${JSON.stringify(error.response.data)}`);
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error in createCourse:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error(error.response?.data?.message || error.message || 'Failed to create course');
+    }
+  },
+  
+  // Update an existing course
+  updateCourse: async (courseId, courseData) => {
+    try {
+      console.log('\n=== Updating Course ===');
+      console.log('Course ID:', courseId);
+      console.log('Course data keys:', Object.keys(courseData));
+      
+      // Try multiple potential endpoints in sequence with different HTTP methods
+      const endpointOptions = [
+        // PATCH methods
+        { url: `/courses/instructor/courses/${courseId}/update/`, method: 'patch' },
+        { url: `/courses/instructor/courses/${courseId}/`, method: 'patch' },
+        { url: `/courses/instructor/${courseId}/update/`, method: 'patch' },
+        { url: `/courses/${courseId}/update/`, method: 'patch' },
+        { url: `/courses/${courseId}/`, method: 'patch' },
+        { url: `/courses/update-course/${courseId}/`, method: 'patch' },
+        { url: `/instructor/courses/${courseId}/update/`, method: 'patch' },
+        { url: `/instructor/courses/${courseId}/`, method: 'patch' },
+        
+        // PUT methods
+        { url: `/courses/instructor/courses/${courseId}/update/`, method: 'put' },
+        { url: `/courses/instructor/courses/${courseId}/`, method: 'put' },
+        { url: `/courses/instructor/${courseId}/update/`, method: 'put' },
+        { url: `/courses/${courseId}/update/`, method: 'put' },
+        { url: `/courses/${courseId}/`, method: 'put' },
+        { url: `/courses/update-course/${courseId}/`, method: 'put' },
+        { url: `/instructor/courses/${courseId}/update/`, method: 'put' },
+        { url: `/instructor/courses/${courseId}/`, method: 'put' },
+        
+        // POST methods
+        { url: `/courses/instructor/courses/${courseId}/update/`, method: 'post' },
+        { url: `/courses/instructor/courses/${courseId}/`, method: 'post' },
+        { url: `/courses/instructor/${courseId}/update/`, method: 'post' },
+        { url: `/courses/${courseId}/update/`, method: 'post' },
+        { url: `/courses/${courseId}/`, method: 'post' },
+        { url: `/courses/update-course/${courseId}/`, method: 'post' },
+        { url: `/instructor/courses/${courseId}/update/`, method: 'post' },
+        { url: `/instructor/courses/${courseId}/`, method: 'post' }
+      ];
+      
+      let lastError = null;
+      
+      // Try each endpoint until one works
+      for (const { url, method } of endpointOptions) {
+        try {
+          console.log(`Trying ${method.toUpperCase()} to endpoint: ${url}`);
+          
+          let response;
+          if (method === 'patch') {
+            response = await api.patch(url, courseData);
+          } else if (method === 'put') {
+            response = await api.put(url, courseData);
+          } else if (method === 'post') {
+            response = await api.post(url, courseData);
+          }
+          
+          console.log('Course update response:', response);
+          return response;
+        } catch (error) {
+          console.log(`Error with ${method.toUpperCase()} to endpoint ${url}:`, {
+            status: error.response?.status,
+            message: error.message
+          });
+          
+          // If not a 404, this is a "real" error with a valid endpoint
+          if (error.response?.status !== 404) {
+            throw error;
+          }
+          
+          lastError = error;
+        }
+      }
+      
+      // If we've tried all endpoints and none worked, throw the last error
+      throw lastError || new Error('All endpoints failed');
+    } catch (error) {
+      console.error('Error in updateCourse:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error(error.response?.data?.message || error.message || 'Failed to update course');
     }
   },
 
   // Get all courses
-  getCourses: async () => {
+  getAllCourses: async (filters = {}) => {
     try {
       console.log('\n=== Getting All Courses ===');
-      const response = await api.get('/courses/');
-      console.log('Raw API response:', response);
+      console.log('Filters:', filters);
+      
+      // Build query string from filters
+      const queryParams = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) queryParams.append(key, value);
+      });
+      
+      const queryString = queryParams.toString();
+      const url = `/courses/${queryString ? `?${queryString}` : ''}`;
+      
+      console.log('Request URL:', url);
+      
+      const response = await api.get(url);
+      console.log('All courses response:', response);
       
       let courses = [];
+      
       if (Array.isArray(response)) {
         courses = response;
-      } else if (response?.data) {
-        courses = response.data;
-      } else if (response?.results) {
-        courses = response.results;
       } else if (response?.courses) {
         courses = response.courses;
+      } else if (response?.results) {
+        courses = response.results;
       }
-
-      // Process image URLs in the courses
+      
+      // Process image URLs
       courses = courses.map(course => ({
         ...course,
         thumbnail: processImageUrl(course.thumbnail),
         cover_image: processImageUrl(course.cover_image)
       }));
       
-      console.log('Processed courses:', courses);
-      return courses.filter(course => course?.is_published);
+      console.log('Processed all courses:', courses);
+      return courses;
     } catch (error) {
-      console.error('Error in getCourses:', error);
-      return [];
+      console.error('Error in getAllCourses:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error('Failed to load courses. Please try again later.');
+    }
+  },
+
+  // Alias for getAllCourses to maintain backward compatibility
+  getCourses: async (filters = {}) => {
+    console.log('\n=== Using getCourses alias for getAllCourses ===');
+    return courseAPI.getAllCourses(filters);
+  },
+
+  // Get recently added courses
+  getRecentCourses: async (limit = 3) => {
+    console.log('\n=== Getting Recent Courses ===');
+    try {
+      // Get all courses and sort by creation date
+      const allCourses = await courseAPI.getAllCourses();
+      
+      // Sort courses by creation date (newest first)
+      const sortedCourses = [...allCourses].sort((a, b) => {
+        const dateA = new Date(a.created_at || a.created || 0);
+        const dateB = new Date(b.created_at || b.created || 0);
+        return dateB - dateA; // descending order (newest first)
+      });
+      
+      // Return the specified number of courses
+      const recentCourses = sortedCourses.slice(0, limit);
+      console.log(`Returning ${recentCourses.length} recent courses`);
+      return recentCourses;
+    } catch (error) {
+      console.error('Error in getRecentCourses:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw new Error('Failed to load recent courses. Please try again later.');
     }
   },
 
@@ -277,357 +569,444 @@ export const courseAPI = {
   // Check enrollment status
   checkEnrollmentStatus: async (courseId) => {
     try {
-      console.log('Checking enrollment status for course:', courseId);
-      const response = await api.get(`/enrollments/api/courses/${courseId}/check-enrollment/`);
-      console.log('Enrollment status response:', response);
+      console.log(`\n=== Checking enrollment status for course ${courseId} ===`);
       
-      // Handle different response formats
-      const isEnrolled = response?.is_enrolled || response?.enrolled || false;
-      console.log('Processed enrollment status:', { isEnrolled });
+      // Try multiple potential endpoints
+      const endpoints = [
+        `/enrollments/api/courses/${courseId}/check-enrollment/`,
+        `/courses/${courseId}/enrollment-status/`,
+        `/courses/${courseId}/check-enrollment/`,
+        `/enrollments/courses/${courseId}/status/`,
+        `/api/enrollments/courses/${courseId}/status/`
+      ];
       
+      let lastError = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying enrollment status endpoint: ${endpoint}`);
+          const response = await api.get(endpoint);
+          console.log('Check enrollment status response:', response);
+          
+          return {
+            isEnrolled: response.is_enrolled || response.enrolled || false,
+            status: response.status || 'success',
+            progressPercentage: response.progress_percentage || 0,
+            courseId: courseId
+          };
+        } catch (endpointError) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: endpointError.response?.status,
+            message: endpointError.message
+          });
+          
+          // If not a 404, this is a "real" error with a valid endpoint
+          if (endpointError.response?.status !== 404) {
+            lastError = endpointError;
+            break;
+          }
+          
+          lastError = endpointError;
+          // Continue to try the next endpoint
+        }
+      }
+      
+      // If all endpoints failed, try a fallback approach
+      // Try to get course details and check the enrollment status from there
+      try {
+        console.log('Trying fallback: getting course details');
+        const courseDetails = await courseAPI.getCourseById(courseId);
+        console.log('Got course details for enrollment check:', courseDetails);
+        
+        if (courseDetails) {
+          const isEnrolled = courseDetails.is_enrolled || courseDetails.enrolled || false;
+          return {
+            isEnrolled,
+            status: isEnrolled ? 'success' : 'not_enrolled',
+            progressPercentage: 0,
+            courseId: courseId,
+            fromFallback: true
+          };
+        }
+      } catch (fallbackError) {
+        console.error('Fallback approach also failed:', fallbackError);
+      }
+      
+      // If we get here, all approaches failed
+      console.error('All enrollment status check approaches failed');
+      
+      // Return a safe default
       return {
-        is_enrolled: isEnrolled,
-        enrolled: isEnrolled // For backward compatibility
+        isEnrolled: false,
+        status: 'unknown',
+        progressPercentage: 0,
+        error: lastError,
+        courseId: courseId
       };
     } catch (error) {
-      console.error('Error checking enrollment status:', {
-        courseId,
-        error: error.message,
-        response: error.response?.data
-      });
-      return { is_enrolled: false, enrolled: false };
+      console.error('Error checking enrollment status:', error);
+      return {
+        isEnrolled: false,
+        status: 'error',
+        error: error,
+        courseId: courseId
+      };
     }
   },
 
   // Enroll in a course
   enrollInCourse: async (courseId) => {
     try {
-      const response = await api.post(`/enrollments/api/courses/${courseId}/enroll/`);
-      return response;
+      console.log('\n=== Enrolling in Course ===');
+      console.log('Course ID:', courseId);
+      
+      // Define multiple potential endpoints to try
+      const endpoints = [
+        `/courses/${courseId}/enroll/`,
+        `/courses/enroll/${courseId}/`,
+        `/api/courses/${courseId}/enroll/`,
+        `/enrollments/courses/${courseId}/enroll/`,
+        `/enrollments/enroll/${courseId}/`
+      ];
+      
+      let lastError = null;
+      let successResponse = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying enrollment endpoint: ${endpoint}`);
+          const response = await api.post(endpoint);
+          console.log('Successful enrollment response:', response);
+          
+          successResponse = response;
+          break;  // Exit the loop if successful
+        } catch (endpointError) {
+          console.error(`Error with endpoint ${endpoint}:`, {
+            status: endpointError.response?.status,
+            data: endpointError.response?.data,
+            message: endpointError.message
+          });
+          
+          // If we get a meaningful error (not 404), save it and exit
+          if (endpointError.response && endpointError.response.status !== 404) {
+            lastError = endpointError;
+            break;
+          }
+          
+          lastError = endpointError;
+          // Continue trying next endpoint
+        }
+      }
+      
+      // If we got a successful response
+      if (successResponse) {
+        return {
+          success: true,
+          courseId: courseId,
+          message: successResponse.message || 'Successfully enrolled in course'
+        };
+      }
+      
+      // If we got here, no endpoint worked
+      throw lastError || new Error('All enrollment endpoints failed');
+      
     } catch (error) {
       console.error('Error enrolling in course:', error);
+      console.error('Detailed error info:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        stack: error.stack
+      });
+      
+      // Check for specific error cases
+      
+      // Case 1: Already enrolled
+      if (error.message?.includes('already enrolled') || 
+          error.response?.data?.detail?.includes('already enrolled')) {
+        return {
+          success: true,
+          courseId: courseId,
+          message: 'You are already enrolled in this course'
+        };
+      }
+      
+      // Case 2: Server error (500)
+      if (error.response?.status === 500) {
+        // Try directly using fetch as a fallback
+        try {
+          console.log('Trying fetch fallback for enrollment');
+          const response = await fetch(`http://localhost:8000/api/courses/${courseId}/enroll/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${JSON.parse(localStorage.getItem('authTokens')).access}`
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Fetch fallback succeeded:', data);
+            return {
+              success: true,
+              courseId: courseId,
+              message: data.message || 'Successfully enrolled in course'
+            };
+          }
+        } catch (fetchError) {
+          console.error('Fetch fallback also failed:', fetchError);
+        }
+        
+        return {
+          success: false,
+          courseId: courseId,
+          message: 'Server error during enrollment. Please try again later.',
+          serverError: true
+        };
+      }
+      
+      // Default case
+      return {
+        success: false,
+        courseId: courseId,
+        message: error.response?.data?.detail || error.message || 'Failed to enroll in course'
+      };
+    }
+  },
+
+  // Drop a course (unenroll)
+  dropCourse: async (courseId) => {
+    try {
+      console.log('\n=== Dropping Course ===');
+      console.log('Course ID:', courseId);
+      
+      const response = await api.post(`/courses/${courseId}/unenroll/`);
+      console.log('Unenrollment response:', response);
+      
+      return {
+        success: true,
+        message: response.message || 'Successfully unenrolled from course'
+      };
+    } catch (error) {
+      console.error('Error unenrolling from course:', error);
+      
+      return {
+        success: false,
+        message: error.message || 'Failed to unenroll from course'
+      };
+    }
+  },
+  
+  // Get course modules
+  getCourseModules: async (courseId) => {
+    try {
+      console.log(`Fetching modules for course ${courseId}`);
+      const response = await api.get(`/courses/api/courses/${courseId}/modules/`);
+      
+      console.log('Course modules response:', response.data);
+      
+      // Sort modules by order
+      const sortedModules = response.data.sort((a, b) => a.order - b.order);
+      
+      return sortedModules;
+    } catch (error) {
+      console.error('Error fetching course modules:', error);
       throw error;
     }
   },
-
-  // Search courses
-  searchCourses: async (query) => {
+  
+  // Get module sections
+  getModuleSections: async (moduleId) => {
     try {
-      const response = await api.get(`/courses/?search=${query}`);
-      return response?.results || response || [];
+      console.log(`Fetching sections for module ${moduleId}`);
+      const response = await api.get(`/courses/api/modules/${moduleId}/sections/`);
+      
+      console.log('Module sections response:', response.data);
+      
+      // Sort sections by order
+      const sortedSections = response.data.sort((a, b) => a.order - b.order);
+      
+      return sortedSections;
     } catch (error) {
-      console.error('Error in searchCourses:', error);
-      return [];
-    }
-  },
-
-  // Get recently added courses
-  getRecentCourses: async () => {
-    try {
-      console.log('\n=== Getting Recent Courses ===');
-      const response = await api.get('/courses/');  // Use the base courses endpoint
-      console.log('GetRecentCourses Raw Response:', response);
-      
-      let courses = [];
-      if (Array.isArray(response)) {
-        courses = response;
-      } else if (response?.data) {
-        courses = response.data;
-      } else if (response?.results) {
-        courses = response.results;
-      } else if (response?.courses) {
-        courses = response.courses;
-      }
-      
-      if (!Array.isArray(courses)) {
-        console.error('Invalid courses data:', courses);
-        return [];
-      }
-      
-      console.log('Processed courses before filtering:', courses);
-      
-      // Filter published courses and sort by creation date
-      const recentCourses = courses
-        .filter(course => 
-          course && 
-          course.is_published && 
-          (course.created_at || course.created || course.date_created)
-        )
-        .sort((a, b) => {
-          const dateA = new Date(a.created_at || a.created || a.date_created);
-          const dateB = new Date(b.created_at || b.created || b.date_created);
-          return dateB - dateA;
-        })
-        .slice(0, 3);  // Get only the 3 most recent courses
-      
-      console.log('Final recent courses:', recentCourses);
-      return recentCourses;
-    } catch (error) {
-      console.error('Error in getRecentCourses:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        stack: error.stack
-      });
-      return [];  // Return empty array instead of throwing
-    }
-  },
-
-  // Get random courses for recommendations
-  getRandomCourses: async () => {
-    try {
-      console.log('Fetching random courses from /api/courses/');
-      const response = await api.get('/api/courses/');
-      console.log('GetRandomCourses Raw Response:', response);
-      
-      let courses = [];
-      if (Array.isArray(response)) {
-        courses = response;
-      } else if (response?.courses) {
-        courses = response.courses;
-      } else if (response?.results) {
-        courses = response.results;
-      }
-      
-      console.log('Processed random courses:', courses);
-      // Filter published courses and get random 3
-      const publishedCourses = courses.filter(course => course?.is_published);
-      return publishedCourses
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 3);
-    } catch (error) {
-      console.error('Error in getRandomCourses:', error);
-      return [];
-    }
-  },
-
-  // Get courses by category
-  getCoursesByCategory: async (category) => {
-    try {
-      const response = await api.get(`/courses/?category=${category}`);
-      return response?.results || response || [];
-    } catch (error) {
-      console.error('Error in getCoursesByCategory:', error);
-      return [];
-    }
-  },
-
-  // Get courses by institution
-  getCoursesByInstitution: async (institution) => {
-    const response = await api.get(`/courses/?institution=${institution}`);
-    return response;
-  },
-
-  // Update course progress
-  updateProgress: async (courseId, data) => {
-    try {
-      const response = await api.post(`/courses/${courseId}/progress/`, data);
-      return response;
-    } catch (error) {
-      console.error('Error in updateProgress:', error);
+      console.error('Error fetching module sections:', error);
       throw error;
     }
   },
-
-  // Rate a course
-  rateCourse: async (courseId, rating, review) => {
-    const response = await api.post(`/courses/${courseId}/reviews/`, {
-      rating,
-      review
-    });
-    return response;
-  },
-
-  // Get all published courses (for students)
-  getAllCourses: async () => {
+  
+  // Mark section as complete
+  markSectionComplete: async (courseId, sectionId) => {
     try {
-      console.log('\n=== Getting All Published Courses ===');
-      const response = await api.get('/courses/list/');
-      console.log('Raw API response:', response);
+      console.log(`Marking section ${sectionId} as complete for course ${courseId}`);
+      const response = await api.post(`/courses/api/courses/${courseId}/sections/${sectionId}/complete/`);
       
-      // Handle different response formats
-      let courses = [];
-      if (Array.isArray(response)) {
-        courses = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        courses = response.data;
-      } else if (response?.results && Array.isArray(response.results)) {
-        courses = response.results;
-      } else {
-        console.error('Unexpected response format:', response);
-        return [];
-      }
+      console.log('Mark section complete response:', response.data);
       
-      console.log('All courses before processing:', courses);
-      
-      // Process and validate each course
-      const processedCourses = courses
-        .filter(course => course && course.id && course.title)
-        .map(course => ({
-          id: course.id,
-          title: course.title,
-          description: course.description || 'No description available',
-          thumbnail: course.thumbnail_url || course.thumbnail || null,
-          cover_image: course.cover_image_url || course.cover_image || null,
-          instructor: {
-            name: course.instructor?.name || course.instructor?.username || 
-                  (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
-            username: course.instructor?.username || 
-                     (typeof course.instructor === 'string' ? course.instructor : 'Unknown')
-          },
-          category: typeof course.category === 'object' ? 
-                   course.category?.name || 'Uncategorized' : 
-                   course.category || 'Uncategorized',
-          difficulty: course.difficulty || 'Not specified',
-          duration_in_weeks: course.duration_in_weeks || 'N/A',
-          price: parseFloat(course.price || 0),
-          total_students: parseInt(course.total_students || 0),
-          rating: parseFloat(course.rating || 0),
-          is_published: true
-        }));
-      
-      console.log('Final processed courses:', processedCourses);
-      return processedCourses;
+      return {
+        success: response.data.success,
+        message: response.data.message || 'Section marked as complete',
+        progressPercentage: response.data.progress_percentage
+      };
     } catch (error) {
-      console.error('Error in getAllCourses:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        stack: error.stack
-      });
-      return [];
+      console.error('Error marking section as complete:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to mark section as complete',
+        error
+      };
     }
   },
-
-  // Delete course
-  deleteCourse: async (courseId) => {
-    const response = await api.delete(`/courses/${courseId}/`);
-    return response;
-  },
-
+  
   // Get course progress
   getCourseProgress: async (courseId) => {
     try {
-      console.log('Fetching course progress for ID:', courseId);
-      const response = await api.get(`/courses/courses/${courseId}/progress/`);
-      console.log('Course progress response:', response);
-      return response;
+      console.log(`Fetching progress for course ${courseId}`);
+      const response = await api.get(`/courses/api/courses/${courseId}/progress/`);
+      
+      console.log('Course progress response:', response.data);
+      
+      // Convert sections_completed object to a map for easier access
+      const sectionsCompleted = response.data.sections_completed || {};
+      
+      return sectionsCompleted;
     } catch (error) {
       console.error('Error fetching course progress:', error);
-      throw new Error(error.response?.data?.message || 'Failed to fetch course progress');
+      return {};
     }
   },
-
-  // Get course content with modules, sections, and lessons
-  getCourseContent: async (courseId) => {
+  
+  // Submit quiz results
+  submitQuizResults: async (courseId, quizId, results) => {
     try {
-      console.log('Fetching course content for ID:', courseId);
-      const response = await api.get(`/courses/courses/${courseId}/content/`);
-      console.log('Course content response:', response);
-      return response;
-    } catch (error) {
-      console.error('Error fetching course content:', error);
-      throw new Error(error.response?.data?.message || 'Failed to fetch course content');
-    }
-  },
-
-  // Mark lesson as completed
-  completeLesson: async (lessonId) => {
-    try {
-      console.log('Marking lesson as completed:', lessonId);
-      const response = await api.post(`/courses/lessons/${lessonId}/complete/`);
-      console.log('Complete lesson response:', response);
-      return response;
-    } catch (error) {
-      console.error('Error completing lesson:', error);
-      throw new Error(error.response?.data?.message || 'Failed to mark lesson as complete');
-    }
-  },
-
-  getEnrolledStudents: async () => {
-    try {
-      const response = await api.get('/courses/instructor/enrolled-students/');
-      console.log('Enrolled students raw response:', response);
+      console.log(`Submitting quiz ${quizId} results for course ${courseId}:`, results);
+      const response = await api.post(`/courses/api/courses/${courseId}/quizzes/${quizId}/submit/`, results);
       
-      // Handle different response formats
-      let students = [];
-      if (Array.isArray(response)) {
-        students = response;
-      } else if (response?.data) {
-        students = response.data;
-      } else if (response?.students) {
-        students = response.students;
-      }
+      console.log('Submit quiz results response:', response.data);
       
-      console.log('Processed enrolled students:', students);
-      return students;
+      return {
+        success: true,
+        score: response.data.score,
+        passed: response.data.passed,
+        passingScore: response.data.passing_score
+      };
     } catch (error) {
-      console.error('Error fetching enrolled students:', error);
-      throw handleApiError(error);
+      console.error('Error submitting quiz results:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to submit quiz results',
+        error
+      };
     }
   },
-
-  getCourseEnrollments: async () => {
+  
+  // Save notes for a section
+  saveNotes: async (courseId, sectionId, notes) => {
     try {
-      const response = await api.get('/courses/instructor/enrollments/');
-      console.log('Course enrollments raw response:', response);
+      console.log(`Saving notes for section ${sectionId} in course ${courseId}`);
+      const response = await api.post(`/courses/api/courses/${courseId}/sections/${sectionId}/notes/`, {
+        notes
+      });
       
-      // Handle different response formats
-      let enrollments = [];
-      if (Array.isArray(response)) {
-        enrollments = response;
-      } else if (response?.data) {
-        enrollments = response.data;
-      } else if (response?.enrollments) {
-        enrollments = response.enrollments;
-      }
+      console.log('Save notes response:', response.data);
       
-      console.log('Processed course enrollments:', enrollments);
-      return enrollments;
+      return {
+        success: true,
+        message: response.data.message || 'Notes saved successfully'
+      };
     } catch (error) {
-      console.error('Error fetching course enrollments:', error);
-      throw handleApiError(error);
+      console.error('Error saving notes:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to save notes',
+        error
+      };
     }
   },
-
-  removeStudent: async (studentId) => {
+  
+  // Unenroll from a course
+  unenrollCourse: async (courseId) => {
     try {
-      const response = await api.delete(`/courses/instructor/remove-student/${studentId}/`);
-      console.log('Remove student raw response:', response);
-      return response;
+      console.log(`Unenrolling from course ${courseId}`);
+      const response = await api.post(`/courses/api/courses/${courseId}/unenroll/`);
+      
+      console.log('Unenroll course response:', response.data);
+      
+      return {
+        success: response.data.success,
+        message: response.data.message || 'Successfully unenrolled from the course'
+      };
     } catch (error) {
-      console.error('Error removing student:', error);
-      throw handleApiError(error);
+      console.error('Error unenrolling from course:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to unenroll from the course',
+        error
+      };
     }
   }
 };
 
 // Enrollment-related API calls
 export const enrollmentAPI = {
-  checkEnrollment: async (courseId) => {
+  dropCourse: async (courseId) => {
     try {
-      console.log('Checking enrollment for course ID:', courseId);
-      const response = await api.get(`/enrollments/courses/${courseId}/check-enrollment/`);
-      return response;
+      const response = await api.post(`/courses/${courseId}/drop/`);
+      return response.data;
     } catch (error) {
-      console.error('Error checking enrollment for course', courseId, ':', error);
-      throw error;
+      console.error('Error dropping course:', error);
+      throw new Error(error.response?.data?.message || 'Failed to drop course');
     }
   },
 
-  dropCourse: async (courseId) => {
-    if (!courseId) {
-      throw new Error('Course ID is required to drop course');
-    }
-    
+  // Get enrolled courses for the current user
+  getEnrolledCourses: async () => {
     try {
-      console.log(`Dropping course ID: ${courseId}`);
-      const response = await api.post(`/courses/${courseId}/drop/`);
-      console.log('Drop course response:', response);
-      return response;
+      console.log('\n=== Getting Enrolled Courses ===');
+      const response = await api.get('/courses/enrolled/');  // Changed from /enrollments/api/enrolled-courses/
+      console.log('Raw enrolled courses response:', response);
+      
+      let courses = [];
+      if (Array.isArray(response)) {
+        courses = response;
+      } else if (response?.data) {
+        courses = response.data;
+      } else if (response?.results) {
+        courses = response.results;
+      }
+
+      // Process and validate each enrolled course
+      const processedCourses = courses
+        .filter(course => course && course.course)
+        .map(enrollment => ({
+          id: enrollment.course.id,
+          title: enrollment.course.title || 'Untitled Course',
+          description: enrollment.course.description || 'No description available',
+          thumbnail: processImageUrl(enrollment.course.thumbnail || enrollment.course.thumbnail_url),
+          cover_image: processImageUrl(enrollment.course.cover_image || enrollment.course.cover_image_url),
+          instructor: {
+            name: enrollment.course.instructor?.name || 
+                  enrollment.course.instructor?.username || 
+                  (typeof enrollment.course.instructor === 'string' ? enrollment.course.instructor : 'Unknown'),
+            username: enrollment.course.instructor?.username || 'unknown'
+          },
+          category: typeof enrollment.course.category === 'object' ? 
+                   enrollment.course.category?.name || 'Uncategorized' : 
+                   enrollment.course.category || 'Uncategorized',
+          difficulty_level: enrollment.course.difficulty_level || 'All Levels',
+          duration_in_weeks: enrollment.course.duration_in_weeks || 'Self-paced',
+          price: parseFloat(enrollment.course.price || 0),
+          total_students: parseInt(enrollment.course.total_students || 0),
+          rating: parseFloat(enrollment.course.rating || enrollment.course.avg_rating || 0),
+          enrollment_date: enrollment.enrollment_date,
+          progress: enrollment.progress || 0
+        }));
+
+      console.log('Processed enrolled courses:', processedCourses);
+      return processedCourses;
     } catch (error) {
-      console.error(`Error dropping course ${courseId}:`, error);
-      throw new Error(error.message || 'Failed to drop course');
+      console.error('Error in getEnrolledCourses:', error);
+      return [];
     }
   }
 };

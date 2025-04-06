@@ -13,6 +13,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework import generics, permissions
+from rest_framework.views import APIView
 
 from .models import Enrollment, Progress
 from courses.models import Course, Section, Lesson
@@ -155,8 +157,8 @@ def check_enrollment(request, course_id):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @login_required
-def unenroll_course(request, course_slug):
-    course = get_object_or_404(Course, slug=course_slug)
+def unenroll_course(request, course_id):
+    course = get_object_or_404(Course, id=course_id)
     enrollment = get_object_or_404(Enrollment, user=request.user, course=course)
     
     if request.method == 'POST':
@@ -327,8 +329,8 @@ class CourseProgressView(LoginRequiredMixin, DetailView):
     context_object_name = 'enrollment'
     
     def get_object(self):
-        course_slug = self.kwargs.get('course_slug')
-        course = get_object_or_404(Course, slug=course_slug)
+        course_id = self.kwargs.get('course_id')
+        course = get_object_or_404(Course, id=course_id)
         return get_object_or_404(Enrollment, user=self.request.user, course=course)
     
     def get_context_data(self, **kwargs):
@@ -341,13 +343,14 @@ class CourseProgressView(LoginRequiredMixin, DetailView):
         
         # Calculate progress for each section
         section_progress = {}
-        for section in course.sections.all():
-            total_lessons = section.lessons.count()
+        for section in Section.objects.filter(module__course=course):
+            total_lessons = Lesson.objects.filter(section=section).count()
             if total_lessons == 0:
                 section_progress[section.id] = 0
                 continue
                 
-            completed_lessons = enrollment.progress.filter(
+            completed_lessons = Progress.objects.filter(
+                enrollment=enrollment,
                 lesson__section=section,
                 completed=True
             ).count()
@@ -361,7 +364,10 @@ class CourseCompletionView(LoginRequiredMixin, DetailView):
     model = Course
     template_name = 'enrollments/course_completion.html'
     context_object_name = 'course'
-    slug_url_kwarg = 'course_slug'
+    
+    def get_object(self):
+        course_id = self.kwargs.get('course_id')
+        return get_object_or_404(Course, id=course_id)
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -378,3 +384,145 @@ class CourseCompletionView(LoginRequiredMixin, DetailView):
         ).exclude(id=course.id)[:3]
         
         return context
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def check_enrollment_status(request, course_id):
+    """Check if a user is enrolled in a specific course"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        
+        # Check if the user is enrolled and not dropped
+        is_enrolled = Enrollment.objects.filter(
+            user=request.user,
+            course=course,
+            status__in=['active', 'completed', 'pending']
+        ).exists()
+        
+        # Get enrollment if exists
+        enrollment = None
+        if is_enrolled:
+            enrollment = Enrollment.objects.get(
+                user=request.user,
+                course=course
+            )
+        
+        return Response({
+            'is_enrolled': is_enrolled,
+            'enrollment_status': enrollment.status if enrollment else None,
+            'progress_percentage': enrollment.progress_percentage if enrollment else 0
+        })
+        
+    except Exception as e:
+        return Response({
+            'is_enrolled': False,
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+class EnrollmentListView(LoginRequiredMixin, ListView):
+    """View to list all enrollments for the current user"""
+    model = Enrollment
+    template_name = 'enrollments/enrollment_list.html'
+    context_object_name = 'enrollments'
+    
+    def get_queryset(self):
+        return Enrollment.objects.filter(user=self.request.user).order_by('-enrolled_at')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['active_enrollments'] = self.get_queryset().filter(status='active')
+        context['completed_enrollments'] = self.get_queryset().filter(status='completed')
+        context['dropped_enrollments'] = self.get_queryset().filter(status='dropped')
+        return context
+
+class EnrollmentDetailView(LoginRequiredMixin, DetailView):
+    """View for seeing details of a specific enrollment"""
+    model = Enrollment
+    template_name = 'enrollments/enrollment_detail.html'
+    context_object_name = 'enrollment'
+    
+    def get_queryset(self):
+        # Ensure users can only view their own enrollments
+        return Enrollment.objects.filter(user=self.request.user)
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        enrollment = self.get_object()
+        context['course'] = enrollment.course
+        # Get progress data
+        total_lessons = Lesson.objects.filter(section__module__course=enrollment.course).count()
+        completed_lessons = Progress.objects.filter(
+            enrollment=enrollment, 
+            completed=True
+        ).count()
+        context['progress'] = {
+            'completed_lessons': completed_lessons,
+            'total_lessons': total_lessons,
+            'percentage': (completed_lessons / total_lessons * 100) if total_lessons > 0 else 0
+        }
+        return context
+
+class EnrollmentCreateView(LoginRequiredMixin, DetailView):
+    """View for creating a new enrollment"""
+    model = Course
+    template_name = 'enrollments/enrollment_create.html'
+    context_object_name = 'course'
+    pk_url_kwarg = 'course_id'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        course = self.get_object()
+        context['is_enrolled'] = Enrollment.objects.filter(
+            user=self.request.user, 
+            course=course,
+            status__in=['active', 'completed']
+        ).exists()
+        return context
+    
+    def post(self, request, *args, **kwargs):
+        course = self.get_object()
+        
+        # Check if already enrolled
+        existing_enrollment = Enrollment.objects.filter(
+            user=request.user,
+            course=course
+        ).first()
+        
+        if existing_enrollment:
+            if existing_enrollment.status == 'dropped':
+                # Reactivate enrollment
+                existing_enrollment.status = 'active'
+                existing_enrollment.save()
+                messages.success(request, f"Your enrollment in {course.title} has been reactivated.")
+            else:
+                messages.info(request, f"You are already enrolled in {course.title}.")
+            return redirect('enrollments:enrollment_detail', pk=existing_enrollment.pk)
+        
+        # Create new enrollment
+        enrollment = Enrollment.objects.create(
+            user=request.user,
+            course=course,
+            status='active',
+            enrolled_at=timezone.now()
+        )
+        
+        messages.success(request, f"You have successfully enrolled in {course.title}.")
+        return redirect('enrollments:enrollment_detail', pk=enrollment.pk)
+
+class EnrollmentCancelView(LoginRequiredMixin, DetailView):
+    """View for cancelling/dropping an enrollment"""
+    model = Enrollment
+    template_name = 'enrollments/enrollment_cancel.html'
+    context_object_name = 'enrollment'
+    
+    def get_queryset(self):
+        # Ensure users can only cancel their own enrollments
+        return Enrollment.objects.filter(user=self.request.user)
+    
+    def post(self, request, *args, **kwargs):
+        enrollment = self.get_object()
+        enrollment.status = 'dropped'
+        enrollment.save()
+        
+        messages.success(request, f"You have successfully unenrolled from {enrollment.course.title}.")
+        return redirect('enrollments:enrollment_list')

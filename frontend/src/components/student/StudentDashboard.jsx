@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import {
     Box,
     Container,
@@ -14,6 +14,7 @@ import {
     useColorModeValue,
     Flex,
     Spinner,
+    useToast,
 } from '@chakra-ui/react';
 import { SearchIcon } from '@chakra-ui/icons';
 import {
@@ -27,6 +28,7 @@ import { courseAPI } from '../../services/api';
 import CourseCard from '../courses/CourseCard';
 import Navbar from '../shared/Navbar';
 import Footer from '../shared/Footer';
+import { enrollmentAPI } from '../../services/api';
 
 const CategoryButton = ({ icon, text, onClick, ...props }) => (
     <Button
@@ -51,102 +53,117 @@ const StudentDashboard = () => {
         enrolled: [],
         recommended: []
     });
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState({
+        all: true,
+        recent: true,
+        enrolled: true,
+        recommended: true
+    });
     const [error, setError] = useState(null);
     const navigate = useNavigate();
     const bgColor = useColorModeValue('gray.50', 'gray.800');
+    const toast = useToast();
+
+    const fetchCourses = async () => {
+        setLoading(prev => ({ ...prev, all: true }));
+        try {
+            // Fetch all courses first
+            const allCourses = await courseAPI.getCourses();
+            console.log('All courses fetched:', allCourses);
+
+            // Fetch recent courses
+            setLoading(prev => ({ ...prev, recent: true }));
+            const recentCourses = await courseAPI.getRecentCourses();
+            console.log('Recent courses fetched:', recentCourses);
+            setLoading(prev => ({ ...prev, recent: false }));
+
+            // Fetch enrolled courses
+            setLoading(prev => ({ ...prev, enrolled: true }));
+            try {
+                const enrolledCoursesData = await enrollmentAPI.getEnrolledCourses();
+                console.log('Enrolled courses fetched:', enrolledCoursesData);
+                
+                // Get recommended courses (excluding enrolled ones)
+                setLoading(prev => ({ ...prev, recommended: true }));
+                const enrolledIds = new Set(enrolledCoursesData.map(course => course.id));
+                const recommendedCoursesData = allCourses
+                    .filter(course => !enrolledIds.has(course.id))
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, 3);
+                console.log('Recommended courses:', recommendedCoursesData);
+
+                // Update all course data at once
+                setCourses({
+                    recentlyAdded: recentCourses || [],
+                    enrolled: enrolledCoursesData || [],
+                    recommended: recommendedCoursesData || []
+                });
+            } catch (enrollmentError) {
+                console.error('Error fetching enrolled courses:', enrollmentError);
+                // If enrolled courses fail, still show other sections
+                setCourses(prev => ({
+                    ...prev,
+                    enrolled: [],
+                    recommended: allCourses
+                        .sort(() => Math.random() - 0.5)
+                        .slice(0, 3) || []
+                }));
+                toast({
+                    title: 'Error fetching enrolled courses',
+                    description: 'Unable to load your enrolled courses. Please try again later.',
+                    status: 'warning',
+                    duration: 5000,
+                    isClosable: true,
+                });
+            }
+
+        } catch (error) {
+            console.error('Error fetching courses:', error);
+            setError(error.message || 'An error occurred while fetching courses');
+            toast({
+                title: 'Error fetching courses',
+                description: error.message || 'Please try refreshing the page.',
+                status: 'error',
+                duration: 5000,
+                isClosable: true,
+            });
+            setCourses({
+                recentlyAdded: [],
+                enrolled: [],
+                recommended: []
+            });
+        } finally {
+            setLoading({
+                all: false,
+                recent: false,
+                enrolled: false,
+                recommended: false
+            });
+        }
+    };
 
     useEffect(() => {
-        const fetchCourses = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-
-                // Fetch all courses first
-                const allCourses = await courseAPI.getCourses();
-                console.log('All courses fetched:', allCourses);
-
-                // Ensure allCourses is an array
-                const coursesArray = Array.isArray(allCourses) ? allCourses : [];
-                console.log('Courses array:', coursesArray);
-
-                if (coursesArray.length === 0) {
-                    console.log('No courses available');
-                    setCourses({
-                        recentlyAdded: [],
-                        enrolled: [],
-                        recommended: []
-                    });
-                    return;
-                }
-
-                // Get recently added courses (already sorted by created_at)
-                const recentlyAdded = await courseAPI.getRecentCourses();
-                console.log('Recently added courses fetched:', recentlyAdded);
-
-                // Get enrolled courses
-                const enrolled = await courseAPI.getEnrolledCourses();
-                console.log('Enrolled courses fetched:', enrolled);
-
-                // Get random courses for recommendations
-                // Filter out enrolled courses from recommendations
-                const enrolledIds = new Set((enrolled || []).map(course => course.id));
-                const availableCourses = coursesArray.filter(course => !enrolledIds.has(course.id));
-                console.log('Available courses for recommendations:', availableCourses);
-
-                const recommended = availableCourses
-                    .sort(() => Math.random() - 0.5)
-                    .slice(0, 3); // Get up to 3 random courses
-
-                console.log('Selected recommended courses:', recommended);
-
-                // Process course data to ensure all required fields are present
-                const processCourse = (course) => ({
-                    id: course.id,
-                    title: course.title || 'Untitled Course',
-                    description: course.description || 'No description available',
-                    thumbnail: course.thumbnail || course.thumbnail_url || null,
-                    instructor: {
-                        name: course.instructor?.name || course.instructor?.username || 
-                              (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
-                        username: course.instructor?.username || 'unknown'
-                    },
-                    rating: parseFloat(course.rating || course.avg_rating || 0),
-                    total_students: parseInt(course.total_students || 0),
-                    difficulty_level: course.difficulty_level || 'All Levels',
-                    duration: course.duration_in_weeks ? `${course.duration_in_weeks} weeks` : 'Self-paced',
-                    institution: course.institution || 'Featured Institution'
-                });
-
-                // Set the courses state with processed data
-                setCourses({
-                    recentlyAdded: Array.isArray(recentlyAdded) ? recentlyAdded.map(processCourse) : [],
-                    enrolled: Array.isArray(enrolled) ? enrolled.map(processCourse) : [],
-                    recommended: Array.isArray(recommended) ? recommended.map(processCourse) : []
-                });
-            } catch (err) {
-                console.error('Error in fetchCourses:', err);
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchCourses();
     }, []);
 
     const handleSearch = (e) => {
         e.preventDefault();
         if (searchQuery.trim()) {
-            navigate(`/courses?search=${encodeURIComponent(searchQuery.trim())}`);
+            // Use startTransition for navigation
+            React.startTransition(() => {
+                navigate(`/courses?search=${encodeURIComponent(searchQuery.trim())}`);
+            });
         }
     };
 
     const handleCategoryClick = (category) => {
-        navigate(`/courses?category=${encodeURIComponent(category)}`);
+        // Use startTransition for navigation
+        React.startTransition(() => {
+            navigate(`/courses?category=${encodeURIComponent(category)}`);
+        });
     };
 
-    if (loading) {
+    if (loading.all) {
         return (
             <Flex direction="column" minH="100vh">
                 <Navbar />

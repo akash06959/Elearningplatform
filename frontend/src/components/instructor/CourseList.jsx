@@ -68,28 +68,38 @@ const InstructorCourseList = () => {
 
     const handlePublishToggle = async (courseId, currentStatus) => {
         try {
-            const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+            console.log(`Toggling course ${courseId} from ${currentStatus} to ${currentStatus === 'draft' ? 'published' : 'draft'}`);
+            setLoading(true);
             
-            console.log(`Toggling course ${courseId} from ${currentStatus} to ${newStatus}`);
+            const newStatus = currentStatus === 'draft' ? 'published' : 'draft';
             const response = await courseAPI.updateCourseStatus(courseId, newStatus);
-            console.log('Update response:', response);
             
-            if (response.status === 'success' && response.course) {
-                // Update local state with the returned course data
-                setCourses(prevCourses => prevCourses.map(course => 
-                    course.id === courseId ? response.course : course
-                ));
-                
+            if (response.status === 'success') {
+                // Show success toast
                 toast({
                     title: 'Success',
-                    description: response.message || `Course ${newStatus === 'published' ? 'published' : 'unpublished'} successfully`,
+                    description: response.message,
                     status: 'success',
                     duration: 3000,
                     isClosable: true,
                 });
+
+                // Update the course status in the local state
+                setCourses(prevCourses => 
+                    prevCourses.map(course => 
+                        course.id === courseId 
+                            ? { 
+                                ...course, 
+                                is_published: newStatus === 'published',
+                                status: newStatus
+                              }
+                            : course
+                    )
+                );
             } else {
-                throw new Error('Invalid response from server');
+                throw new Error(response.message || 'Failed to update course status');
             }
+            
         } catch (error) {
             console.error('Error updating course status:', error);
             toast({
@@ -99,9 +109,10 @@ const InstructorCourseList = () => {
                 duration: 5000,
                 isClosable: true,
             });
-            
-            // Revert the UI state by refetching courses
-            await fetchCourses();
+        } finally {
+            setLoading(false);
+            // Refresh the course list to ensure we have the latest data
+            fetchCourses();
         }
     };
 

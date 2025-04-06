@@ -15,6 +15,12 @@ urlpatterns = [
     # Web views
     path('courses/', views.EnrolledCoursesListView.as_view(), name='enrolled_courses'),
     path('courses/<int:course_id>/progress/', views.CourseProgressView.as_view(), name='course_progress'),
-    path('courses/<slug:course_slug>/completion/', views.CourseCompletionView.as_view(), name='course_completion'),
-    path('courses/<slug:course_slug>/unenroll/', views.unenroll_course, name='unenroll_course'),
+    path('courses/<int:course_id>/completion/', views.CourseCompletionView.as_view(), name='course_completion'),
+    path('courses/<int:course_id>/unenroll/', views.unenroll_course, name='unenroll_course'),
+    path('', views.EnrollmentListView.as_view(), name='enrollment_list'),
+    path('<int:pk>/', views.EnrollmentDetailView.as_view(), name='enrollment_detail'),
+    path('create/<int:course_id>/', views.EnrollmentCreateView.as_view(), name='enrollment_create'),
+    path('cancel/<int:pk>/', views.EnrollmentCancelView.as_view(), name='enrollment_cancel'),
+    path('progress/<int:course_id>/', views.CourseProgressView.as_view(), name='course_progress'),
+    path('complete/<int:course_id>/', views.CourseCompletionView.as_view(), name='course_completion'),
 ]

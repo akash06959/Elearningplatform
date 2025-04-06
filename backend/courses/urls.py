@@ -12,7 +12,16 @@ from .views import (
     EnrolledCoursesAPIView,
     CourseContentAPIView,
     complete_lesson,
-    course_progress
+    course_progress,
+    CourseDetailAPIView,
+    CheckEnrollmentAPIView,
+    CourseModulesAPIView,
+    ModuleSectionsAPIView,
+    mark_section_complete,
+    get_course_progress,
+    submit_quiz_results,
+    save_section_notes,
+    unenroll_course
 )
 
 app_name = 'courses'
@@ -23,6 +32,10 @@ router.register(r'', views.CourseViewSet, basename='course')
 
 # Define URL patterns
 urlpatterns = [
+    # Course detail and enrollment endpoints
+    path('<int:pk>/detail/', CourseDetailAPIView.as_view(), name='course-detail-api'),
+    path('<int:pk>/enrollment-status/', CheckEnrollmentAPIView.as_view(), name='check-enrollment-api'),
+    
     # Course listing endpoint
     path('list/', CourseListAPIView.as_view(), name='course-list'),
     
@@ -54,4 +67,19 @@ urlpatterns = [
     path('web/section/<int:section_id>/', views.SectionDetailView.as_view(), name='section_detail'),
     path('web/lesson/<int:lesson_id>/', views.LessonDetailView.as_view(), name='lesson_detail'),
     path('web/lesson/<int:lesson_id>/complete/', views.mark_lesson_complete, name='mark_lesson_complete'),
+    
+    # API Endpoints
+    path('api/courses/', CourseListAPIView.as_view(), name='course_list_api'),
+    path('api/courses/<int:pk>/', CourseDetailAPIView.as_view(), name='course_detail_api'),
+    path('api/courses/<int:pk>/status/', CourseStatusUpdateAPIView.as_view(), name='course_status_update_api'),
+    path('api/courses/<int:pk>/content/', CourseContentAPIView.as_view(), name='course_content_api'),
+    
+    # New API endpoints for course learning
+    path('api/courses/<int:course_id>/modules/', CourseModulesAPIView.as_view(), name='course_modules_api'),
+    path('api/modules/<int:module_id>/sections/', ModuleSectionsAPIView.as_view(), name='module_sections_api'),
+    path('api/courses/<int:course_id>/sections/<int:section_id>/complete/', mark_section_complete, name='mark_section_complete'),
+    path('api/courses/<int:course_id>/progress/', get_course_progress, name='get_course_progress'),
+    path('api/courses/<int:course_id>/quizzes/<int:quiz_id>/submit/', submit_quiz_results, name='submit_quiz_results'),
+    path('api/courses/<int:course_id>/sections/<int:section_id>/notes/', save_section_notes, name='save_section_notes'),
+    path('api/courses/<int:course_id>/unenroll/', unenroll_course, name='unenroll_course_api'),
 ]

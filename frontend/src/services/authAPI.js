@@ -34,9 +34,24 @@ export const authAPI = {
       const response = await api.post('/login/', credentials);
       console.log('Login response:', response.data);
       
-      if (!response.data.access || !response.data.refresh || !response.data.user_type) {
-        throw new Error('Invalid response from server: Missing required fields');
+      if (!response.data.access || !response.data.refresh) {
+        throw new Error('Invalid response from server: Missing token fields');
       }
+      
+      // Store user type information consistently
+      const userData = {
+        username: credentials.username,
+        role: credentials.user_type,
+        ...response.data
+      };
+      
+      // Store tokens and user info in localStorage
+      localStorage.setItem('authTokens', JSON.stringify({
+        access: response.data.access,
+        refresh: response.data.refresh
+      }));
+      
+      localStorage.setItem('user', JSON.stringify(userData));
 
       return response.data;
     } catch (error) {
@@ -52,7 +67,10 @@ export const authAPI = {
   refreshToken: async (refresh) => {
     try {
       const response = await api.post('/token/refresh/', { refresh });
-      return response.data;
+      return {
+        access: response.data.access,
+        refresh: refresh
+      };
     } catch (error) {
       console.error('Token refresh error:', error);
       throw error;
@@ -98,8 +116,8 @@ export const authAPI = {
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);
             localStorage.removeItem('authTokens');
-            localStorage.removeItem('user_type');
-            localStorage.removeItem('username');
+            localStorage.removeItem('user');
+            
             if (navigate) {
               navigate('/login');
             }

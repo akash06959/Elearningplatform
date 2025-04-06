@@ -42,30 +42,45 @@ class LessonSerializer(serializers.ModelSerializer):
         return False
 
 class SectionSerializer(serializers.ModelSerializer):
-    lessons = LessonSerializer(many=True, read_only=True)
-    progress = serializers.SerializerMethodField()
-
+    completed = serializers.SerializerMethodField()
+    
     class Meta:
         model = Section
-        fields = [
-            'id', 'course', 'title', 'description', 'order',
-            'is_published', 'release_date', 'due_date',
-            'estimated_duration', 'completion_criteria',
-            'resources', 'lessons', 'progress'
-        ]
-
-    def get_progress(self, obj):
+        fields = ['id', 'title', 'description', 'order', 'content_type', 'video_url', 'pdf_url', 'completed']
+    
+    def get_completed(self, obj):
         request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            total_lessons = obj.lessons.count()
-            if total_lessons == 0:
-                return 0
-            completed_lessons = UserProgress.objects.filter(
+        if not request or not request.user.is_authenticated:
+            return False
+        
+        # Check if user has completed this section
+        from enrollments.models import Enrollment, Progress
+        
+        try:
+            # Get the user's enrollment for this course
+            enrollment = Enrollment.objects.get(
                 user=request.user,
-                lesson__section=obj
+                course=obj.module.course,
+                status='active'
+            )
+            
+            # Get lessons in this section
+            lessons = Lesson.objects.filter(section=obj)
+            
+            if not lessons.exists():
+                return False
+            
+            # Check if all lessons are completed
+            completed_count = Progress.objects.filter(
+                enrollment=enrollment,
+                lesson__in=lessons,
+                completed=True
             ).count()
-            return round((completed_lessons / total_lessons) * 100, 2)
-        return 0
+            
+            return completed_count == lessons.count()
+            
+        except (Enrollment.DoesNotExist, AttributeError):
+            return False
 
 class InstructorSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
@@ -84,27 +99,10 @@ class InstructorSerializer(serializers.ModelSerializer):
 
 class ModuleSerializer(serializers.ModelSerializer):
     sections = SectionSerializer(many=True, read_only=True)
-    progress = serializers.SerializerMethodField()
-
+    
     class Meta:
         model = Module
-        fields = [
-            'id', 'title', 'description', 'order',
-            'sections', 'progress'
-        ]
-
-    def get_progress(self, obj):
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            total_lessons = Lesson.objects.filter(section__module=obj).count()
-            if total_lessons == 0:
-                return 0
-            completed_lessons = UserProgress.objects.filter(
-                user=request.user,
-                lesson__section__module=obj
-            ).count()
-            return round((completed_lessons / total_lessons) * 100, 2)
-        return 0
+        fields = ['id', 'title', 'description', 'order', 'sections']
 
 class CourseSerializer(serializers.ModelSerializer):
     instructor = InstructorSerializer(read_only=True)
@@ -224,3 +222,33 @@ class UserProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProgress
         fields = ['id', 'user', 'lesson', 'completed_at']
+
+class CourseDetailSerializer(serializers.ModelSerializer):
+    modules = ModuleSerializer(many=True, read_only=True)
+    is_enrolled = serializers.SerializerMethodField()
+    instructor_name = serializers.SerializerMethodField()
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    
+    class Meta:
+        model = Course
+        fields = [
+            'id', 'title', 'description', 'thumbnail', 'cover_image',
+            'difficulty_level', 'instructor', 'instructor_name',
+            'category', 'category_name', 'estimated_duration',
+            'price', 'is_published', 'is_featured', 'is_enrolled',
+            'course_objectives', 'target_audience', 'modules'
+        ]
+    
+    def get_instructor_name(self, obj):
+        return f"{obj.instructor.first_name} {obj.instructor.last_name}"
+    
+    def get_is_enrolled(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        
+        return Enrollment.objects.filter(
+            user=request.user,
+            course=obj,
+            status__in=['active', 'completed']
+        ).exists()

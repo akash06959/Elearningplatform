@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
-from .models import Course, Category, Section, Lesson, Review, Module, UserProgress
+from .models import Course, Category, Section, Lesson, Review, Module, UserProgress, Quiz
 from .forms import CourseForm, SectionForm, LessonForm, ReviewForm
 from accounts.models import User
 from enrollments.models import Enrollment, Progress
@@ -21,7 +21,8 @@ from .serializers import (
     SectionSerializer,
     LessonSerializer,
     UserProgressSerializer,
-    ReviewSerializer
+    ReviewSerializer,
+    CourseListSerializer
 )
 from rest_framework import viewsets, permissions, status, generics
 from rest_framework.decorators import action, api_view, permission_classes
@@ -30,6 +31,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.pagination import PageNumberPagination
 from django.http import Http404
 from django.contrib.auth import get_user_model
+from rest_framework.views import APIView
 
 class CourseListView(ListView):
     model = Course
@@ -1325,3 +1327,332 @@ def remove_student(request, student_id):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+class CourseDetailAPIView(generics.RetrieveAPIView):
+    """API endpoint for retrieving course details"""
+    serializer_class = CourseSerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = 'pk'
+
+    def get_queryset(self):
+        return Course.objects.select_related(
+            'instructor',
+            'category'
+        ).prefetch_related(
+            'modules',
+            'modules__sections',
+            'modules__sections__lessons',
+            'reviews'
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            course = self.get_object()
+            
+            # Check if course is published or user is instructor/staff
+            if not course.is_published and not (
+                request.user.is_staff or 
+                (request.user.is_authenticated and request.user == course.instructor)
+            ):
+                return Response(
+                    {'message': 'Course not found or not available'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            serializer = self.get_serializer(course)
+            return Response(serializer.data)
+            
+        except Course.DoesNotExist:
+            return Response(
+                {'message': 'Course not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'message': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class CheckEnrollmentAPIView(generics.RetrieveAPIView):
+    """API endpoint for checking enrollment status"""
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'pk'
+
+    def get_queryset(self):
+        return Course.objects.all()
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            course = self.get_object()
+            enrollment = Enrollment.objects.filter(
+                user=request.user,
+                course=course,
+                status='active'
+            ).exists()
+            
+            return Response({
+                'is_enrolled': enrollment,
+                'status': 'success',
+                'message': 'Successfully checked enrollment status'
+            })
+            
+        except Course.DoesNotExist:
+            return Response(
+                {
+                    'is_enrolled': False,
+                    'status': 'error',
+                    'message': 'Course not found'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {
+                    'is_enrolled': False,
+                    'status': 'error',
+                    'message': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class CourseModulesAPIView(generics.ListAPIView):
+    """API view to get all modules for a specific course"""
+    serializer_class = ModuleSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        return Module.objects.filter(course_id=course_id).order_by('order')
+
+class ModuleSectionsAPIView(generics.ListAPIView):
+    """API view to get all sections for a specific module"""
+    serializer_class = SectionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        module_id = self.kwargs.get('module_id')
+        return Section.objects.filter(module_id=module_id).order_by('order')
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def mark_section_complete(request, course_id, section_id):
+    """Mark a section as complete for the current user"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        section = get_object_or_404(Section, id=section_id)
+        
+        # Check if user is enrolled
+        enrollment = get_object_or_404(Enrollment, user=request.user, course=course, status='active')
+        
+        # Get lessons in this section
+        lessons = Lesson.objects.filter(section=section)
+        
+        # Mark all lessons as complete
+        for lesson in lessons:
+            progress, created = Progress.objects.get_or_create(
+                enrollment=enrollment,
+                lesson=lesson,
+                defaults={
+                    'completed': True,
+                    'completed_at': timezone.now()
+                }
+            )
+            
+            if not created and not progress.completed:
+                progress.completed = True
+                progress.completed_at = timezone.now()
+                progress.save()
+        
+        # Update enrollment progress
+        total_lessons = Lesson.objects.filter(section__module__course=course).count()
+        completed_lessons = Progress.objects.filter(
+            enrollment=enrollment,
+            completed=True
+        ).count()
+        
+        if total_lessons > 0:
+            enrollment.progress_percentage = (completed_lessons / total_lessons) * 100
+            enrollment.current_section = section
+            enrollment.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Section marked as complete',
+            'progress_percentage': enrollment.progress_percentage
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_course_progress(request, course_id):
+    """Get the user's progress for a specific course"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        
+        # Check if user is enrolled
+        enrollment = get_object_or_404(Enrollment, user=request.user, course=course, status='active')
+        
+        # Get all completed lessons for this enrollment
+        completed_progress = Progress.objects.filter(
+            enrollment=enrollment,
+            completed=True
+        )
+        
+        # Create a dictionary of section_id -> completed status
+        sections_completed = {}
+        for progress in completed_progress:
+            if progress.lesson.section:
+                section_id = progress.lesson.section.id
+                if section_id not in sections_completed:
+                    # Check if all lessons in this section are completed
+                    total_lessons = Lesson.objects.filter(section_id=section_id).count()
+                    completed_lessons = completed_progress.filter(lesson__section_id=section_id).count()
+                    sections_completed[section_id] = total_lessons == completed_lessons
+        
+        # Get quiz progress
+        quiz_progress = {}
+        for progress in completed_progress:
+            if progress.lesson.content_type == 'quiz' and progress.score is not None:
+                quiz = get_object_or_404(Quiz, lesson=progress.lesson)
+                quiz_progress[quiz.id] = {
+                    'score': progress.score,
+                    'passed': progress.score >= quiz.passing_score
+                }
+        
+        return Response({
+            'sections_completed': sections_completed,
+            'quiz_progress': quiz_progress,
+            'overall_progress': enrollment.progress_percentage
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def submit_quiz_results(request, course_id, quiz_id):
+    """Submit quiz results for a user"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        
+        # Check if user is enrolled
+        enrollment = get_object_or_404(Enrollment, user=request.user, course=course, status='active')
+        
+        # Get the quiz
+        lesson = get_object_or_404(Lesson, content_type='quiz', id=quiz_id)
+        quiz = get_object_or_404(Quiz, lesson=lesson)
+        
+        # Get the score from request
+        score = request.data.get('score', 0)
+        answers = request.data.get('answers', {})
+        
+        # Update progress
+        progress, created = Progress.objects.get_or_create(
+            enrollment=enrollment,
+            lesson=lesson,
+            defaults={
+                'completed': True,
+                'completed_at': timezone.now(),
+                'score': score
+            }
+        )
+        
+        if not created:
+            progress.completed = True
+            progress.completed_at = timezone.now()
+            progress.score = score
+            progress.save()
+        
+        # Check if passed
+        passed = score >= quiz.passing_score
+        
+        return Response({
+            'success': True,
+            'score': score,
+            'passed': passed,
+            'passing_score': quiz.passing_score
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def save_section_notes(request, course_id, section_id):
+    """Save notes for a specific section"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        section = get_object_or_404(Section, id=section_id)
+        
+        # Check if user is enrolled
+        enrollment = get_object_or_404(Enrollment, user=request.user, course=course, status='active')
+        
+        # Get notes from request
+        notes = request.data.get('notes', '')
+        
+        # Create or update first lesson's progress with notes
+        first_lesson = Lesson.objects.filter(section=section).first()
+        
+        if first_lesson:
+            progress, created = Progress.objects.get_or_create(
+                enrollment=enrollment,
+                lesson=first_lesson,
+                defaults={'notes': notes}
+            )
+            
+            if not created:
+                progress.notes = notes
+                progress.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Notes saved successfully'
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def unenroll_course(request, course_id):
+    """Unenroll from a course"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        
+        # Check if user is enrolled
+        enrollment = get_object_or_404(Enrollment, user=request.user, course=course)
+        
+        # Update enrollment status to dropped
+        enrollment.status = 'dropped'
+        enrollment.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Successfully unenrolled from the course'
+        })
+        
+    except Enrollment.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'You are not enrolled in this course'
+        }, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)

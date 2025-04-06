@@ -325,9 +325,15 @@ const InstructorDashboard = () => {
                             <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
                                 <Button
                                     as={Link}
-                                    to="/instructor/create-course"
+                                    to="/instructor/courses/create"
                                     colorScheme="blue"
                                     leftIcon={<Icon as={FiBook} />}
+                                    onClick={(e) => {
+                                        console.log('Create Course button clicked');
+                                        // Stop event if there are issues
+                                        // e.preventDefault();
+                                        // console.log('Route prevented, check authentication');
+                                    }}
                                 >
                                     Create New Course
                                 </Button>
