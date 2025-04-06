@@ -13,13 +13,12 @@ import {
   RadioGroup,
   useToast,
 } from '@chakra-ui/react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { authAPI } from '../../services/authAPI';
 import DragPuzzle from './DragPuzzle';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
-  const navigate = useNavigate();
   const { loginUser } = useAuth();
   const [formData, setFormData] = useState({
     username: '',

@@ -21,7 +21,8 @@ from .views import (
     get_course_progress,
     submit_quiz_results,
     save_section_notes,
-    unenroll_course
+    unenroll_course,
+    instructor_course_view
 )
 
 app_name = 'courses'
@@ -47,6 +48,7 @@ urlpatterns = [
     # Instructor API endpoints
     path('instructor/courses/', InstructorCoursesAPIView.as_view(), name='instructor-courses-api'),
     path('instructor/courses/<int:pk>/', InstructorCourseDetailAPIView.as_view(), name='instructor-course-detail-api'),
+    path('instructor/courses/<int:course_id>/view/', instructor_course_view, name='instructor-course-view-api'),
     path('instructor/enrolled-students/', views.get_enrolled_students, name='enrolled-students'),
     path('instructor/enrollments/', views.get_course_enrollments, name='course-enrollments'),
     path('instructor/remove-student/<int:student_id>/', views.remove_student, name='remove-student'),

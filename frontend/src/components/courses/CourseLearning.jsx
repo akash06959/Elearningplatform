@@ -50,9 +50,6 @@ function CourseLearning() {
           if (enrollmentCheck && enrollmentCheck.status === 'success' && enrollmentCheck.is_enrolled === false) {
             console.log("CourseLearning: Not enrolled in this course, showing warning");
             toast.error("You're not enrolled in this course, but we'll show you the content anyway");
-            // Don't redirect - just show a warning
-            // navigate(`/courses/${courseId}`);
-            // return;
           }
         } catch (enrollmentError) {
           console.error("CourseLearning: Error checking enrollment status:", enrollmentError);
@@ -66,11 +63,29 @@ function CourseLearning() {
           throw new Error("Failed to load course data");
         }
         
-        console.log("Course data loaded successfully");
+        console.log("Course data loaded successfully:", courseData);
+        console.log("Course modules:", courseData.modules);
+        
         setCourse(courseData);
         
         // Initialize modules and sections from course data
         if (courseData.modules && Array.isArray(courseData.modules)) {
+          console.log(`Found ${courseData.modules.length} modules in course data`);
+          
+          // Debugging: Check each module's sections
+          courseData.modules.forEach((module, idx) => {
+            console.log(`Module ${idx + 1} (${module.title}):`);
+            console.log(` - Sections count: ${module.sections?.length || 0}`);
+            if (module.sections && module.sections.length > 0) {
+              module.sections.forEach((section, sIdx) => {
+                console.log(`   * Section ${sIdx + 1}: ${section.title}`);
+                console.log(`     Content type: ${section.content_type}`);
+                console.log(`     Video URL: ${section.video_url}`);
+                console.log(`     PDF URL: ${section.pdf_url}`);
+              });
+            }
+          });
+          
           setModules(courseData.modules);
           
           // Initialize progress tracking
@@ -103,20 +118,38 @@ function CourseLearning() {
             
             // Set initial module and section
             if (courseData.modules.length > 0) {
-              setCurrentModule(courseData.modules[0]);
+              const firstModule = courseData.modules[0];
+              console.log("Setting initial module:", firstModule.title);
+              setCurrentModule(firstModule);
               
-              if (courseData.modules[0].sections && courseData.modules[0].sections.length > 0) {
-                const firstSection = courseData.modules[0].sections[0];
+              if (firstModule.sections && firstModule.sections.length > 0) {
+                const firstSection = firstModule.sections[0];
+                console.log("Setting initial section:", firstSection.title);
+                console.log("Section details:", {
+                  id: firstSection.id,
+                  title: firstSection.title,
+                  content_type: firstSection.content_type,
+                  video_url: firstSection.video_url,
+                  pdf_url: firstSection.pdf_url
+                });
+                
                 setCurrentSection(firstSection);
                 // Load notes for first section
                 const sectionNotes = progressService.getNotes(courseId, firstSection.id);
                 setNotes(sectionNotes);
+              } else {
+                console.warn("First module has no sections!");
               }
+            } else {
+              console.warn("Course has no modules to display!");
             }
           } catch (progressError) {
             console.error("Error with progress tracking:", progressError);
             // Continue with default progress values
           }
+        } else {
+          console.warn("Course has no modules array or the modules property is not an array");
+          console.log("Course data structure:", courseData);
         }
         
         setLoading(false);
@@ -359,26 +392,39 @@ function CourseLearning() {
   };
 
   const renderYouTubeVideo = (url) => {
-    if (!url) return <div className="p-4 bg-gray-100 rounded text-center">No video URL provided</div>;
+    console.log("Rendering YouTube video with URL:", url);
+    
+    if (!url) {
+      console.warn("No video URL provided to renderYouTubeVideo");
+      return <div className="p-4 bg-gray-100 rounded text-center">No video URL provided</div>;
+    }
     
     // Extract YouTube video ID
     let videoId = '';
     
     try {
+      console.log("Parsing YouTube URL:", url);
       // Handle different YouTube URL formats
       if (url.includes('youtube.com/watch')) {
         const urlParams = new URL(url).searchParams;
         videoId = urlParams.get('v');
+        console.log("Extracted video ID from youtube.com/watch:", videoId);
       } else if (url.includes('youtu.be/')) {
         videoId = url.split('youtu.be/')[1].split('?')[0];
+        console.log("Extracted video ID from youtu.be/:", videoId);
       } else if (url.includes('youtube.com/embed/')) {
         videoId = url.split('youtube.com/embed/')[1].split('?')[0];
+        console.log("Extracted video ID from youtube.com/embed/:", videoId);
+      } else {
+        console.warn("Could not recognize YouTube URL format:", url);
       }
       
       if (!videoId) {
+        console.error("Failed to extract video ID from URL:", url);
         throw new Error('Could not extract video ID');
       }
       
+      console.log("Final video ID for embedding:", videoId);
       // Return iframe with YouTube embed
       return (
         <div className="aspect-w-16 aspect-h-9">
@@ -397,7 +443,7 @@ function CourseLearning() {
       // Fallback to direct link
       return (
         <div className="p-4 bg-gray-100 rounded text-center">
-          <p className="mb-2">Unable to embed video.</p>
+          <p className="mb-2">Unable to embed video. Error: {error.message}</p>
           <a 
             href={url} 
             target="_blank" 
@@ -594,6 +640,23 @@ function CourseLearning() {
     );
   };
 
+  // Debug information for current state
+  console.log("Current render state:", {
+    loading,
+    error,
+    courseLoaded: !!course,
+    modulesCount: modules?.length || 0,
+    currentModuleSet: !!currentModule,
+    currentSectionSet: !!currentSection,
+    currentSectionDetails: currentSection ? {
+      id: currentSection.id,
+      title: currentSection.title,
+      content_type: currentSection.content_type,
+      video_url: currentSection.video_url,
+      pdf_url: currentSection.pdf_url
+    } : 'No current section'
+  });
+
   return (
     <div className="bg-gray-50 min-h-screen">
       {/* Header with course title and progress */}
@@ -740,108 +803,68 @@ function CourseLearning() {
                   <div className="p-6">
                     {activeTab === 'content' ? (
                       <div>
-                        <h2 className="text-2xl font-bold text-gray-800 mb-4">{currentSection.title}</h2>
-                        
-                        {currentSection.description && (
-                          <div className="mb-6 text-gray-700">
+                        {console.log("Rendering content tab with section:", currentSection)}
+                        <h3 className="text-xl font-semibold mb-4">{currentSection.title}</h3>
+                        <div className="mb-4">
+                          {currentSection.description ? (
                             <p>{currentSection.description}</p>
-                          </div>
-                        )}
-                        
-                        <div className="mb-8">
-                          {currentSection.content_type === 'video' && currentSection.video_url && (
-                            <div className="aspect-w-16 aspect-h-9 mb-6">
-                              {renderYouTubeVideo(currentSection.video_url)}
-                            </div>
-                          )}
-                          
-                          {currentSection.content_type === 'pdf' && currentSection.pdf_url && (
-                            <div className="bg-gray-100 rounded-lg p-4 mb-6">
-                              {renderPDF(currentSection.pdf_url)}
-                            </div>
-                          )}
-                          
-                          {currentSection.content_type === 'both' && (
-                            <>
-                              {currentSection.video_url && (
-                                <div className="aspect-w-16 aspect-h-9 mb-6">
-                                  {renderYouTubeVideo(currentSection.video_url)}
-                                </div>
-                              )}
-                              
-                              {currentSection.pdf_url && (
-                                <div className="bg-gray-100 rounded-lg p-4 mb-6">
-                                  {renderPDF(currentSection.pdf_url)}
-                                </div>
-                              )}
-                            </>
+                          ) : (
+                            <p className="text-gray-500 italic">No description provided for this section.</p>
                           )}
                         </div>
                         
-                        <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                        {/* Display content based on type */}
+                        {currentSection.content_type === 'video' && currentSection.video_url && (
+                          <div className="mb-6">
+                            {console.log("Rendering video content with URL:", currentSection.video_url)}
+                            {renderYouTubeVideo(currentSection.video_url)}
+                          </div>
+                        )}
+                        
+                        {currentSection.content_type === 'pdf' && currentSection.pdf_url && (
+                          <div className="mb-6">
+                            {console.log("Rendering PDF content with URL:", currentSection.pdf_url)}
+                            {renderPDF(currentSection.pdf_url)}
+                          </div>
+                        )}
+                        
+                        {currentSection.content_type === 'both' && (
+                          <div>
+                            {currentSection.video_url && (
+                              <div className="mb-6">
+                                {console.log("Rendering video in 'both' mode with URL:", currentSection.video_url)}
+                                {renderYouTubeVideo(currentSection.video_url)}
+                              </div>
+                            )}
+                            {currentSection.pdf_url && (
+                              <div className="mb-6">
+                                {console.log("Rendering PDF in 'both' mode with URL:", currentSection.pdf_url)}
+                                {renderPDF(currentSection.pdf_url)}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Display message if no content */}
+                        {(!currentSection.video_url && !currentSection.pdf_url) && (
+                          <div className="p-6 bg-gray-100 rounded-lg text-center">
+                            <p className="text-gray-700">No content available for this section.</p>
+                            {console.log("No content URLs available for this section")}
+                          </div>
+                        )}
+                        
+                        {/* Mark complete button */}
+                        <div className="mt-6 text-center">
                           <button
-                            className={`px-4 py-2 rounded-lg border text-sm font-medium ${
-                              progress[currentSection.id]
-                                ? 'bg-green-50 text-green-700 border-green-200'
-                                : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                            }`}
                             onClick={handleMarkComplete}
-                            disabled={progress[currentSection.id]}
+                            className={`px-6 py-2 rounded-lg font-medium ${
+                              progress[currentSection.id]
+                                ? 'bg-green-100 text-green-800 border border-green-300'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
                           >
-                            {progress[currentSection.id] ? 'Completed' : 'Mark as Complete'}
+                            {progress[currentSection.id] ? 'Completed ✓' : 'Mark as Complete'}
                           </button>
-                          
-                          {/* Next section/module button */}
-                          {(() => {
-                            if (!currentModule) return null;
-                            
-                            const currentSectionIndex = currentModule.sections.findIndex(
-                              section => section.id === currentSection.id
-                            );
-                            
-                            if (currentSectionIndex < currentModule.sections.length - 1) {
-                              const nextSection = currentModule.sections[currentSectionIndex + 1];
-                              return (
-                                <button
-                                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium flex items-center"
-                                  onClick={() => handleSectionClick(nextSection)}
-                                >
-                                  Next: {nextSection.title}
-                                  <svg className="ml-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                  </svg>
-                                </button>
-                              );
-                            } else {
-                              const currentModuleIndex = modules.findIndex(
-                                module => module.id === currentModule.id
-                              );
-                              
-                              if (currentModuleIndex < modules.length - 1) {
-                                const nextModule = modules[currentModuleIndex + 1];
-                                return (
-                                  <button
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center"
-                                    onClick={() => handleModuleClick(nextModule)}
-                                  >
-                                    Next Module: {nextModule.title}
-                                    <svg className="ml-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                                    </svg>
-                                  </button>
-                                );
-                              }
-                              
-                              return (
-                                <button
-                                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg text-sm font-medium cursor-not-allowed"
-                                  disabled
-                                >
-                                  End of Course
-                                </button>
-                              );
-                            }
-                          })()}
                         </div>
                       </div>
                     ) : (

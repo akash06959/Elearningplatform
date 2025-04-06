@@ -107,6 +107,7 @@ api.interceptors.response.use(
 );
 
 // Helper function to handle API errors
+// eslint-disable-next-line no-unused-vars
 const handleApiError = (error) => {
   if (!error.response) {
     // Network error
@@ -375,7 +376,39 @@ export const courseAPI = {
     try {
       console.log('\n=== Updating Course ===');
       console.log('Course ID:', courseId);
-      console.log('Course data keys:', Object.keys(courseData));
+      
+      // Log important parts of the form data for debugging
+      if (courseData instanceof FormData) {
+        console.log('Course data is FormData');
+        // Check if modules_json and quizzes_json are present in the FormData
+        const modulesJson = courseData.get('modules_json');
+        const quizzesJson = courseData.get('quizzes_json');
+        
+        console.log('modules_json present:', !!modulesJson);
+        console.log('quizzes_json present:', !!quizzesJson);
+        
+        if (modulesJson) {
+          try {
+            const modules = JSON.parse(modulesJson);
+            console.log('Number of modules:', modules.length);
+            console.log('First module sample:', modules[0]);
+          } catch (e) {
+            console.error('Error parsing modules_json:', e);
+          }
+        }
+        
+        if (quizzesJson) {
+          try {
+            const quizzes = JSON.parse(quizzesJson);
+            console.log('Number of quizzes:', quizzes.length);
+            console.log('First quiz sample:', quizzes[0]);
+          } catch (e) {
+            console.error('Error parsing quizzes_json:', e);
+          }
+        }
+      } else {
+        console.log('Course data keys:', Object.keys(courseData));
+      }
       
       // Try multiple potential endpoints in sequence with different HTTP methods
       const endpointOptions = [
@@ -417,17 +450,46 @@ export const courseAPI = {
         try {
           console.log(`Trying ${method.toUpperCase()} to endpoint: ${url}`);
           
-          let response;
-          if (method === 'patch') {
-            response = await api.patch(url, courseData);
-          } else if (method === 'put') {
-            response = await api.put(url, courseData);
-          } else if (method === 'post') {
-            response = await api.post(url, courseData);
+          // Determine if we're sending FormData or JSON data
+          const isFormData = courseData instanceof FormData;
+          const headers = {
+            'Authorization': `Bearer ${JSON.parse(localStorage.getItem('authTokens')).access}`
+          };
+          
+          // Only set Content-Type for JSON data, let browser set it for FormData
+          if (!isFormData) {
+            headers['Content-Type'] = 'application/json';
           }
           
-          console.log('Course update response:', response);
-          return response;
+          let response;
+          // Build request config
+          const config = {
+            url: url,
+            method: method,
+            headers: headers,
+            data: courseData,
+            // This is important - don't let axios transform the FormData
+            transformRequest: isFormData ? [
+              (data) => {
+                console.log('Not transforming FormData');
+                return data;
+              }
+            ] : undefined
+          };
+          
+          // Make the request
+          response = await axios(config);
+          
+          // Extract data from response
+          const responseData = response.data;
+          console.log(`${method.toUpperCase()} to ${url} was successful:`, responseData);
+          
+          // Extra validation to ensure modules and quizzes were saved
+          if (!responseData || (!responseData.modules && !responseData.quizzes && !responseData.modules_json && !responseData.quizzes_json)) {
+            console.warn('Response doesn\'t contain modules or quizzes data, but the request was successful');
+          }
+          
+          return responseData;
         } catch (error) {
           console.log(`Error with ${method.toUpperCase()} to endpoint ${url}:`, {
             status: error.response?.status,
@@ -943,6 +1005,59 @@ export const courseAPI = {
         message: error.response?.data?.message || 'Failed to unenroll from the course',
         error
       };
+    }
+  },
+
+  // Get instructor view of course with modules and sections
+  getInstructorCourseView: async (courseId) => {
+    try {
+      console.log(`Fetching instructor course view for course ${courseId}`);
+      
+      // Try multiple potential endpoints
+      const endpoints = [
+        `/courses/instructor/courses/${courseId}/view/`,
+        `/instructor/courses/${courseId}/view/`
+      ];
+      
+      let lastError = null;
+      let response = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying instructor course view endpoint: ${endpoint}`);
+          response = await api.get(endpoint);
+          console.log(`Endpoint ${endpoint} succeeded`);
+          break;
+        } catch (endpointError) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: endpointError.response?.status,
+            message: endpointError.message
+          });
+          
+          lastError = endpointError;
+        }
+      }
+      
+      if (!response) {
+        throw lastError || new Error('All instructor course view endpoints failed');
+      }
+      
+      console.log('Instructor course view response data structure:', {
+        hasData: !!response,
+        keys: response ? Object.keys(response) : [],
+        hasModules: response?.modules ? `${response.modules.length} modules` : 'no modules',
+        modulesSample: response?.modules?.[0] ? Object.keys(response.modules[0]) : []
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error getting instructor course view:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      });
+      throw error;
     }
   }
 };

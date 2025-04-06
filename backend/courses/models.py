@@ -130,6 +130,17 @@ class Section(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
+    # Add fields for content_type, video_url, and pdf_url
+    content_type = models.CharField(max_length=20, choices=[
+        ('video', 'Video'),
+        ('pdf', 'PDF Document'),
+        ('both', 'Both Video & PDF'),
+        ('text', 'Text Content'),
+        ('quiz', 'Quiz'),
+    ], default='video')
+    video_url = models.URLField(max_length=500, blank=True, null=True)
+    pdf_url = models.URLField(max_length=500, blank=True, null=True)
+
     class Meta:
         ordering = ['order']
         unique_together = ['module', 'order']

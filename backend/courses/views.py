@@ -32,6 +32,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.http import Http404
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
+import json
 
 class CourseListView(ListView):
     model = Course
@@ -1069,6 +1070,45 @@ class InstructorCourseDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         # Only allow access to courses where the logged-in user is the instructor
         return Course.objects.filter(instructor=self.request.user)
     
+    def retrieve(self, request, *args, **kwargs):
+        """Override to include modules and sections data"""
+        try:
+            course = self.get_object()
+            serializer = self.get_serializer(course)
+            data = serializer.data
+            
+            # Add modules data
+            modules_data = []
+            for module in course.modules.all().order_by('order'):
+                sections_data = []
+                for section in module.sections.all().order_by('order'):
+                    sections_data.append({
+                        'id': section.id,
+                        'title': section.title,
+                        'description': section.description,
+                        'content_type': section.content_type,
+                        'video_url': section.video_url,
+                        'pdf_url': section.pdf_url,
+                        'order': section.order
+                    })
+                
+                modules_data.append({
+                    'id': module.id,
+                    'title': module.title,
+                    'description': module.description,
+                    'order': module.order,
+                    'sections': sections_data
+                })
+            
+            data['modules'] = modules_data
+            
+            return Response(data)
+        except Exception as e:
+            return Response(
+                {'message': f'Error retrieving course: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     def update(self, request, *args, **kwargs):
         print("\n=== Updating Course ===")
         print(f"User: {request.user.username} (ID: {request.user.id})")
@@ -1107,14 +1147,279 @@ class InstructorCourseDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             course.save()
             print(f"Course updated successfully: {course.title}")
             
+            # ===== Handle modules data =====
+            modules_json = request.data.get('modules_json') or request.data.get('modules')
+            if modules_json:
+                try:
+                    # If modules_json is a string, parse it
+                    if isinstance(modules_json, str):
+                        modules_data = json.loads(modules_json)
+                    else:
+                        modules_data = modules_json
+                    
+                    print(f"Processing {len(modules_data)} modules")
+                    
+                    # Get existing modules
+                    existing_modules = list(course.modules.all())
+                    existing_module_ids = [module.id for module in existing_modules]
+                    
+                    # Track processed module IDs to determine which ones to delete
+                    processed_module_ids = []
+                    
+                    # Process each module
+                    for module_data in modules_data:
+                        module_id = module_data.get('id')
+                        
+                        # Check if this is an existing module
+                        if module_id and Module.objects.filter(id=module_id, course=course).exists():
+                            # Update existing module
+                            module = Module.objects.get(id=module_id, course=course)
+                            module.title = module_data.get('title', module.title)
+                            module.description = module_data.get('description', module.description)
+                            module.order = module_data.get('order', module.order)
+                            module.save()
+                            
+                            # Track that we processed this module
+                            processed_module_ids.append(module_id)
+                            
+                            # Process sections for this module
+                            if 'sections' in module_data:
+                                # Get existing sections
+                                existing_sections = list(module.sections.all())
+                                existing_section_ids = [section.id for section in existing_sections]
+                                processed_section_ids = []
+                                
+                                for section_data in module_data['sections']:
+                                    section_id = section_data.get('id')
+                                    
+                                    # Check if this is an existing section
+                                    if section_id and Section.objects.filter(id=section_id, module=module).exists():
+                                        # Update existing section
+                                        section = Section.objects.get(id=section_id, module=module)
+                                        section.title = section_data.get('title', section.title)
+                                        section.description = section_data.get('description', section.description)
+                                        section.order = section_data.get('order', section.order)
+                                        section.content_type = section_data.get('content_type', section.content_type)
+                                        section.video_url = section_data.get('video_url', section.video_url)
+                                        section.pdf_url = section_data.get('pdf_url', section.pdf_url)
+                                        section.save()
+                                        
+                                        # Track that we processed this section
+                                        processed_section_ids.append(section_id)
+                                    else:
+                                        # Create new section
+                                        section = Section.objects.create(
+                                            module=module,
+                                            title=section_data.get('title', f'Section {len(processed_section_ids) + 1}'),
+                                            description=section_data.get('description', ''),
+                                            order=section_data.get('order', len(processed_section_ids) + 1),
+                                            content_type=section_data.get('content_type', 'video'),
+                                            video_url=section_data.get('video_url', ''),
+                                            pdf_url=section_data.get('pdf_url', '')
+                                        )
+                                        processed_section_ids.append(section.id)
+                                
+                                # Delete sections that weren't in the update
+                                for section in existing_sections:
+                                    if section.id not in processed_section_ids:
+                                        section.delete()
+                        else:
+                            # Create new module
+                            module = Module.objects.create(
+                                course=course,
+                                title=module_data.get('title', f'Module {len(processed_module_ids) + 1}'),
+                                description=module_data.get('description', ''),
+                                order=module_data.get('order', len(processed_module_ids) + 1)
+                            )
+                            
+                            # Track that we processed this module
+                            processed_module_ids.append(module.id)
+                            
+                            # Process sections for this module
+                            if 'sections' in module_data:
+                                for idx, section_data in enumerate(module_data['sections']):
+                                    # Create new section
+                                    Section.objects.create(
+                                        module=module,
+                                        title=section_data.get('title', f'Section {idx + 1}'),
+                                        description=section_data.get('description', ''),
+                                        order=section_data.get('order', idx + 1),
+                                        content_type=section_data.get('content_type', 'video'),
+                                        video_url=section_data.get('video_url', ''),
+                                        pdf_url=section_data.get('pdf_url', '')
+                                    )
+                    
+                    # Delete modules that weren't in the update
+                    for module in existing_modules:
+                        if module.id not in processed_module_ids:
+                            module.delete()
+                    
+                    print(f"Successfully processed modules and sections")
+                    
+                except Exception as e:
+                    print(f"Error processing modules: {str(e)}")
+                    # Continue with the update even if modules processing fails
+                    
+            # ===== Handle quizzes data =====
+            quizzes_json = request.data.get('quizzes_json') or request.data.get('quizzes')
+            if quizzes_json:
+                try:
+                    # If quizzes_json is a string, parse it
+                    if isinstance(quizzes_json, str):
+                        quizzes_data = json.loads(quizzes_json)
+                    else:
+                        quizzes_data = quizzes_json
+                    
+                    print(f"Processing {len(quizzes_data)} quizzes")
+                    
+                    from .models import Quiz, Lesson
+                    
+                    # Get existing quizzes
+                    existing_quizzes = []
+                    for module in course.modules.all():
+                        for section in module.sections.all():
+                            for lesson in section.lessons.filter(content_type='quiz'):
+                                try:
+                                    existing_quizzes.append(lesson.quiz)
+                                except Quiz.DoesNotExist:
+                                    pass
+                    
+                    existing_quiz_ids = [quiz.id for quiz in existing_quizzes]
+                    processed_quiz_ids = []
+                    
+                    # Process each quiz
+                    for quiz_data in quizzes_data:
+                        quiz_id = quiz_data.get('id')
+                        module_id = quiz_data.get('module_id')
+                        
+                        # Skip if no module ID is provided
+                        if not module_id:
+                            continue
+                        
+                        # Get the associated module
+                        try:
+                            module = Module.objects.get(id=module_id, course=course)
+                        except Module.DoesNotExist:
+                            continue
+                        
+                        # Get or create a section for this quiz
+                        section, _ = Section.objects.get_or_create(
+                            module=module,
+                            title=f"Quiz: {quiz_data.get('title', 'Quiz')}",
+                            defaults={
+                                'description': quiz_data.get('description', ''),
+                                'order': 999  # Put quizzes at the end by default
+                            }
+                        )
+                        
+                        # Get or create a lesson for this quiz
+                        lesson, _ = Lesson.objects.get_or_create(
+                            section=section,
+                            content_type='quiz',
+                            defaults={
+                                'title': quiz_data.get('title', 'Quiz'),
+                                'description': quiz_data.get('description', ''),
+                                'order': 1  # First and only lesson in this section
+                            }
+                        )
+                        
+                        # Check if this is an existing quiz
+                        if quiz_id and quiz_id in existing_quiz_ids:
+                            # Update existing quiz
+                            quiz = Quiz.objects.get(id=quiz_id)
+                            quiz.lesson = lesson
+                            quiz.title = quiz_data.get('title', quiz.title)
+                            quiz.description = quiz_data.get('description', quiz.description)
+                            
+                            # Handle questions data
+                            if 'questions' in quiz_data:
+                                questions_data = quiz_data['questions']
+                                quiz.questions = questions_data
+                            
+                            quiz.save()
+                            processed_quiz_ids.append(quiz.id)
+                        else:
+                            # Create new quiz
+                            quiz = Quiz.objects.create(
+                                lesson=lesson,
+                                title=quiz_data.get('title', 'Quiz'),
+                                description=quiz_data.get('description', ''),
+                                questions=quiz_data.get('questions', [])
+                            )
+                            processed_quiz_ids.append(quiz.id)
+                    
+                    # Delete quizzes that weren't in the update
+                    for quiz in existing_quizzes:
+                        if quiz.id not in processed_quiz_ids:
+                            # Delete associated lesson and section too
+                            lesson = quiz.lesson
+                            section = lesson.section
+                            quiz.delete()
+                            lesson.delete()
+                            
+                            # Check if section has other lessons
+                            if not section.lessons.exists():
+                                section.delete()
+                    
+                    print(f"Successfully processed quizzes")
+                    
+                except Exception as e:
+                    print(f"Error processing quizzes: {str(e)}")
+                    # Continue with the update even if quizzes processing fails
+            
             # Return success response
             response_data = {
                 'id': course.id,
                 'title': course.title,
                 'instructor': request.user.username,
                 'status': course.status,
-                'message': 'Course updated successfully'
+                'message': 'Course updated successfully',
+                'modules': [
+                    {
+                        'id': module.id,
+                        'title': module.title,
+                        'description': module.description,
+                        'order': module.order,
+                        'sections': [
+                            {
+                                'id': section.id,
+                                'title': section.title,
+                                'description': section.description,
+                                'content_type': section.content_type if hasattr(section, 'content_type') else None,
+                                'video_url': section.video_url if hasattr(section, 'video_url') else None,
+                                'pdf_url': section.pdf_url if hasattr(section, 'pdf_url') else None,
+                                'order': section.order
+                            }
+                            for section in module.sections.all().order_by('order')
+                        ]
+                    }
+                    for module in course.modules.all().order_by('order')
+                ],
+                'quizzes': []
             }
+            
+            # Add quizzes to response
+            try:
+                quizzes = []
+                for module in course.modules.all():
+                    for section in module.sections.all():
+                        for lesson in section.lessons.filter(content_type='quiz'):
+                            try:
+                                quiz = lesson.quiz
+                                quizzes.append({
+                                    'id': quiz.id,
+                                    'title': quiz.title,
+                                    'description': quiz.description,
+                                    'module_id': module.id,
+                                    'module_title': module.title,
+                                    'questions': quiz.questions
+                                })
+                            except Quiz.DoesNotExist:
+                                pass
+                
+                response_data['quizzes'] = quizzes
+            except Exception as e:
+                print(f"Error preparing quizzes for response: {str(e)}")
             
             return Response(response_data)
             
@@ -1360,7 +1665,44 @@ class CourseDetailAPIView(generics.RetrieveAPIView):
                 )
             
             serializer = self.get_serializer(course)
-            return Response(serializer.data)
+            data = serializer.data
+            
+            # Add modules and their sections to the response
+            modules_data = []
+            for module in course.modules.all().order_by('order'):
+                # Get sections data for this module
+                sections_data = []
+                for section in module.sections.all().order_by('order'):
+                    section_data = {
+                        'id': section.id,
+                        'title': section.title,
+                        'description': section.description,
+                        'order': section.order,
+                        'content_type': section.content_type,
+                        'video_url': section.video_url,
+                        'pdf_url': section.pdf_url,
+                    }
+                    sections_data.append(section_data)
+                
+                # Add module data with its sections
+                module_data = {
+                    'id': module.id,
+                    'title': module.title,
+                    'description': module.description,
+                    'order': module.order,
+                    'sections': sections_data
+                }
+                modules_data.append(module_data)
+            
+            # Add modules to course data
+            data['modules'] = modules_data
+            
+            # Log what we're returning for debugging
+            print(f"CourseDetailAPIView: Returning course {course.id} with {len(modules_data)} modules")
+            for idx, module in enumerate(modules_data):
+                print(f"  Module {idx+1}: {module['title']} with {len(module['sections'])} sections")
+                
+            return Response(data)
             
         except Course.DoesNotExist:
             return Response(
@@ -1368,6 +1710,7 @@ class CourseDetailAPIView(generics.RetrieveAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
+            print(f"Error in CourseDetailAPIView.retrieve: {str(e)}")
             return Response(
                 {'message': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1656,3 +1999,70 @@ def unenroll_course(request, course_id):
             'success': False,
             'message': f'Error: {str(e)}'
         }, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def instructor_course_view(request, course_id):
+    """API view to get complete course details including modules and sections for instructors"""
+    try:
+        # Get the course
+        course = get_object_or_404(Course, id=course_id, instructor=request.user)
+        
+        # Build the basic course data
+        course_data = {
+            'id': course.id,
+            'title': course.title,
+            'description': course.description,
+            'price': str(course.price),
+            'difficulty_level': course.difficulty,
+            'duration_in_weeks': course.duration_in_weeks,
+            'is_published': course.is_published,
+            'status': course.status,
+            'category': course.category.name if course.category else 'Uncategorized',
+            'thumbnail': course.thumbnail.url if course.thumbnail else None,
+            'thumbnail_url': course.thumbnail.url if course.thumbnail else None,
+        }
+        
+        # Get modules data
+        modules_data = []
+        for module in course.modules.all().order_by('order'):
+            # Get sections data for this module
+            sections_data = []
+            for section in module.sections.all().order_by('order'):
+                section_data = {
+                    'id': section.id,
+                    'title': section.title,
+                    'description': section.description,
+                    'order': section.order,
+                    'content_type': section.content_type,
+                    'video_url': section.video_url,
+                    'pdf_url': section.pdf_url,
+                }
+                sections_data.append(section_data)
+            
+            # Add module data with its sections
+            module_data = {
+                'id': module.id,
+                'title': module.title,
+                'description': module.description,
+                'order': module.order,
+                'sections': sections_data
+            }
+            modules_data.append(module_data)
+        
+        # Add modules to course data - use both keys to ensure compatibility
+        course_data['modules'] = modules_data
+        
+        # Log the structure of what we're returning
+        print(f"Returning course data for ID {course_id} with {len(modules_data)} modules")
+        for idx, module in enumerate(modules_data):
+            print(f"Module {idx+1}: {module['title']} with {len(module.get('sections', []))} sections")
+            
+        return Response(course_data)
+        
+    except Exception as e:
+        print(f"Error in instructor_course_view: {str(e)}")
+        return Response(
+            {'message': f'Error getting course details: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

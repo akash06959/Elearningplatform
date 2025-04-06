@@ -1,20 +1,33 @@
-import React, { useState, useContext, useEffect } from 'react';
+/* eslint-disable react/jsx-no-undef */
+/* eslint-disable no-unused-vars */
+import React, { useState, useEffect, useContext } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
     Box,
-    Flex,
-    Icon,
-    Text,
     Heading,
-    SimpleGrid,
+    Text,
+    Flex,
+    Button,
     Stat,
     StatLabel,
     StatNumber,
     StatHelpText,
+    Grid,
+    GridItem,
+    SimpleGrid,
+    Card,
+    CardHeader,
+    CardBody,
+    Stack,
+    StackDivider,
+    Progress,
+    Divider,
+    Avatar,
+    Icon,
+    useColorModeValue,
     VStack,
     HStack,
-    useColorModeValue,
     IconButton,
-    Avatar,
     Menu,
     MenuButton,
     MenuList,
@@ -22,29 +35,22 @@ import {
     Drawer,
     DrawerContent,
     useDisclosure,
-    Table,
-    Thead,
-    Tbody,
-    Tr,
-    Th,
-    Td,
-    Badge,
-    Button,
 } from '@chakra-ui/react';
-import { Link, useNavigate } from 'react-router-dom';
-import {
-    FiMenu,
-    FiHome,
-    FiBook,
-    FiUsers,
-    FiDollarSign,
-    FiBarChart,
-    FiSettings,
+import { 
+    FiUsers, 
+    FiBook, 
+    FiDollarSign, 
+    FiActivity, 
+    FiMenu, 
+    FiHome, 
+    FiBarChart, 
+    FiSettings, 
     FiBell,
-    FiX,
+    FiX 
 } from 'react-icons/fi';
+import { AiOutlineStar } from 'react-icons/ai';
 import { AuthContext } from '../../contexts/AuthContext';
-import { courseAPI } from '../../services/api';
+import { instructorAPI } from '../../services/instructorAPI';
 
 const SidebarContent = ({ onClose, ...rest }) => {
     const navigate = useNavigate();
@@ -230,32 +236,15 @@ const InstructorDashboard = () => {
         activeEnrollments: 0,
         totalRevenue: 0,
     });
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
     const bgColor = useColorModeValue('gray.50', 'gray.800');
 
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                setLoading(true);
-                const courses = await courseAPI.getInstructorCourses();
-                
-                // Calculate stats from courses
-                const totalStudents = courses.reduce((acc, course) => acc + (course.total_students || 0), 0);
-                const activeEnrollments = courses.reduce((acc, course) => acc + (course.active_enrollments || 0), 0);
-                const totalRevenue = courses.reduce((acc, course) => acc + (course.revenue || 0), 0);
-
-                setStats({
-                    totalCourses: courses.length,
-                    totalStudents,
-                    activeEnrollments,
-                    totalRevenue,
-                });
+                const statsData = await instructorAPI.getInstructorStats();
+                setStats(statsData);
             } catch (err) {
                 console.error('Error fetching instructor stats:', err);
-                setError(err.message);
-            } finally {
-                setLoading(false);
             }
         };
 

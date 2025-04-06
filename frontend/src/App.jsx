@@ -9,10 +9,10 @@ import CourseList from './components/courses/CourseList';
 import CourseDetail from './components/courses/CourseDetail';
 import CourseLearning from './components/courses/CourseLearning';
 import CourseRedirect from './components/courses/CourseRedirect';
-import TestLearningPage from './components/courses/TestLearningPage';
 import InstructorCourseList from './components/instructor/CourseList';
 import CreateCourse from './components/instructor/CreateCourse';
 import EditCourse from './components/instructor/EditCourse';
+import InstructorCourseDetail from './components/instructor/InstructorCourseDetail';
 import ForgotPassword from './components/auth/ForgotPassword';
 import InstructorRoute from './components/auth/InstructorRoute';
 import InstructorDashboard from './components/instructor/InstructorDashboard';
@@ -169,6 +169,17 @@ function App() {
           <RequireAuth>
             <InstructorRoute>
               <CreateCourse />
+            </InstructorRoute>
+          </RequireAuth>
+        }
+      />
+      
+      <Route
+        path="/instructor/courses/:courseId/view"
+        element={
+          <RequireAuth>
+            <InstructorRoute>
+              <InstructorCourseDetail />
             </InstructorRoute>
           </RequireAuth>
         }

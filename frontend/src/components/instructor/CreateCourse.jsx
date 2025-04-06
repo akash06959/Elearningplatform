@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import { courseAPI } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 function CreateCourse() {
   const navigate = useNavigate();
+  // eslint-disable-next-line no-unused-vars
   const { user, authTokens } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

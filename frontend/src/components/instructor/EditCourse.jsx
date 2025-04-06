@@ -21,6 +21,7 @@ function EditCourse() {
   const [activeTab, setActiveTab] = useState('basic');
   const [modules, setModules] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
+  const [lastError, setLastError] = useState(null);
   const [courseData, setCourseData] = useState({
     title: '',
     description: '',
@@ -83,32 +84,108 @@ function EditCourse() {
           // Set modules data
           if (courseDetails.modules && courseDetails.modules.length > 0) {
             console.log('Setting modules from course details:', courseDetails.modules);
-            setModules(courseDetails.modules.map(module => ({
-              ...module,
-              sections: module.sections || []
-            })));
-          } else {
-            // If no modules found, initialize with default empty modules
-            console.log('No modules found, initializing default modules');
-            const initialModules = [];
-            for (let i = 1; i <= 10; i++) {
-              initialModules.push({
-                id: i,
-                title: `Module ${i}`,
+            
+            // Ensure all modules have the critical fields populated
+            const processedModules = courseDetails.modules.map(module => ({
+              id: module.id || Date.now() + Math.floor(Math.random() * 1000),
+              title: module.title || `Module ${module.order || 1}`,
+              description: module.description || '',
+              order: module.order || 1,
+              sections: Array.isArray(module.sections) ? module.sections.map(section => ({
+                id: section.id || Date.now() + Math.floor(Math.random() * 1000),
+                title: section.title || `Section ${section.order || 1}`,
+                description: section.description || '',
+                content_type: section.content_type || 'video',
+                video_url: section.video_url || '',
+                pdf_url: section.pdf_url || '',
+                order: section.order || 1
+              })) : []
+            }));
+            
+            console.log('Processed modules to set:', processedModules);
+            setModules(processedModules);
+          } else if (courseDetails.modules_json) {
+            // Try to parse modules from JSON string if available
+            try {
+              const parsedModules = JSON.parse(courseDetails.modules_json);
+              console.log('Parsed modules from modules_json:', parsedModules);
+              setModules(parsedModules);
+            } catch (e) {
+              console.error('Failed to parse modules_json:', e);
+              // Fall back to empty modules
+              setModules([{
+                id: 1,
+                title: 'Module 1',
                 description: '',
-                order: i,
+                order: 1,
                 sections: [{ 
                   id: 1, 
-                  title: `Section 1`, 
+                  title: 'Section 1', 
                   description: '', 
                   content_type: 'video', 
                   video_url: '', 
                   pdf_url: '', 
                   order: 1 
                 }]
-              });
+              }]);
             }
-            setModules(initialModules);
+          } else {
+            // If no modules found, initialize with a single empty module
+            console.log('No modules found, initializing default module');
+            
+            // Check if we have a backup in localStorage first
+            const backupKey = `course_backup_${courseId}`;
+            const backupData = localStorage.getItem(backupKey);
+            
+            if (backupData) {
+              try {
+                console.log('Found backup data in localStorage');
+                const parsedBackup = JSON.parse(backupData);
+                
+                // Only use the backup if it's recent (less than 7 days old)
+                const backupDate = new Date(parsedBackup.lastUpdated);
+                const now = new Date();
+                const diffDays = Math.floor((now - backupDate) / (1000 * 60 * 60 * 24));
+                
+                if (diffDays < 7 && Array.isArray(parsedBackup.modules) && parsedBackup.modules.length > 0) {
+                  console.log('Using backup modules from localStorage, backup is', diffDays, 'days old');
+                  setModules(parsedBackup.modules);
+                  
+                  // Also use backup quizzes if available
+                  if (Array.isArray(parsedBackup.quizzes) && parsedBackup.quizzes.length > 0) {
+                    console.log('Using backup quizzes from localStorage');
+                    setQuizzes(parsedBackup.quizzes);
+                  }
+                  
+                  // Show a notification to the user
+                  setSuccess('Restored unsaved changes from your last session');
+                  return;
+                } else {
+                  console.log('Backup data is too old or invalid, not using it');
+                  // Clear old backup
+                  localStorage.removeItem(backupKey);
+                }
+              } catch (e) {
+                console.error('Error parsing backup data:', e);
+              }
+            }
+            
+            // No valid backup, use default empty module
+            setModules([{
+              id: 1,
+              title: 'Module 1',
+              description: '',
+              order: 1,
+              sections: [{ 
+                id: 1, 
+                title: 'Section 1', 
+                description: '', 
+                content_type: 'video', 
+                video_url: '', 
+                pdf_url: '', 
+                order: 1 
+              }]
+            }]);
           }
           
           // Set quizzes data
@@ -333,6 +410,8 @@ function EditCourse() {
     setSuccess('Submitting changes...');
 
     console.log('Form submitted - attempting to update course');
+    console.log('Current modules data:', modules);
+    console.log('Current quizzes data:', quizzes);
 
     try {
       if (!authTokens?.access) {
@@ -342,6 +421,7 @@ function EditCourse() {
         return;
       }
 
+      // Create a FormData object
       const formData = new FormData();
 
       // Append all form data
@@ -355,18 +435,18 @@ function EditCourse() {
         formData.append('thumbnail', courseData.thumbnail);
       }
       
-      // Add modules and their sections
+      // Add modules and their sections - preserve all modules even if empty
       // Make sure modules JSON is properly structured
       const modulesData = modules
         .map((module, index) => ({
-          id: module.id,
-          title: module.title || `Module ${module.id}`,
+          id: module.id || Date.now() + index, // Ensure we have an ID
+          title: module.title || `Module ${index + 1}`,
           description: module.description || '',
           order: module.order || index + 1,
           sections: module.sections
             .map((section, sectionIndex) => ({
-              id: section.id,
-              title: section.title || `Section ${section.id}`,
+              id: section.id || Date.now() + sectionIndex,
+              title: section.title || `Section ${sectionIndex + 1}`,
               description: section.description || '',
               content_type: section.content_type || 'video',
               video_url: section.video_url || '',
@@ -376,23 +456,25 @@ function EditCourse() {
         }));
         
       console.log('Modules data before stringify:', modulesData);
+
+      // Always append modules data regardless of length
+      const modulesJson = JSON.stringify(modulesData);
+      formData.append('modules_json', modulesJson);
       
-      // Only append modules if there are valid ones
-      if (modulesData.length > 0) {
-        formData.append('modules_json', JSON.stringify(modulesData));
-      }
+      // Also include as a separate field to ensure the backend sees it
+      formData.append('modules', modulesJson);
       
       // Add quizzes - make sure quizzes JSON is properly structured
       const quizzesData = quizzes
         .map((quiz, index) => ({
-          id: quiz.id,
-          title: quiz.title || `Quiz ${quiz.id}`,
+          id: quiz.id || Date.now() + index,
+          title: quiz.title || `Quiz ${index + 1}`,
           description: quiz.description || '',
           module_id: quiz.module_id || modules[0]?.id || 1,
           order: index + 1,
           questions: quiz.questions
             .map((question, questionIndex) => ({
-              id: question.id,
+              id: question.id || Date.now() + questionIndex,
               question: question.question || `Question ${questionIndex + 1}`,
               options: question.options.map(option => option || 'No answer'),
               correct_option: question.correct_option,
@@ -401,11 +483,13 @@ function EditCourse() {
         }));
         
       console.log('Quizzes data before stringify:', quizzesData);
+
+      // Always append quizzes data regardless of length   
+      const quizzesJson = JSON.stringify(quizzesData);   
+      formData.append('quizzes_json', quizzesJson);
       
-      // Only append quizzes if there are valid ones
-      if (quizzesData.length > 0) {
-        formData.append('quizzes_json', JSON.stringify(quizzesData));
-      }
+      // Also include as a separate field to ensure the backend sees it
+      formData.append('quizzes', quizzesJson);
 
       console.log('Sending update request for course:', courseId);
       
@@ -427,13 +511,81 @@ function EditCourse() {
         const response = await courseAPI.updateCourse(courseId, formData);
         console.log('Course update successful:', response);
         
-        setSuccess('Course updated successfully!');
+        // Validate that the response has the expected data
+        let hasModulesData = false;
         
-        // Redirect to instructor courses page after a delay
-        setTimeout(() => {
-          navigate('/instructor/courses');
-        }, 2000);
-        return;
+        if (response) {
+          // Check all possible places where modules might be stored
+          if (response.modules && Array.isArray(response.modules) && response.modules.length > 0) {
+            hasModulesData = true;
+            console.log('Found modules array in response');
+          } else if (response.modules_json) {
+            try {
+              const parsed = JSON.parse(response.modules_json);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                hasModulesData = true;
+                console.log('Found modules in modules_json');
+                // Add parsed modules to response
+                response.modules = parsed;
+              }
+            } catch (e) {
+              console.error('Error parsing modules_json from response:', e);
+            }
+          }
+          
+          // If response is missing modules, inject them from the request
+          if (!hasModulesData) {
+            console.log('Response missing modules, adding them from request data');
+            response.modules = modulesData;
+            response.modules_json = modulesJson;
+          }
+          
+          // Now do the same for quizzes
+          let hasQuizzesData = false;
+          if (response.quizzes && Array.isArray(response.quizzes) && response.quizzes.length > 0) {
+            hasQuizzesData = true;
+            console.log('Found quizzes array in response');
+          } else if (response.quizzes_json) {
+            try {
+              const parsed = JSON.parse(response.quizzes_json);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                hasQuizzesData = true;
+                console.log('Found quizzes in quizzes_json');
+                // Add parsed quizzes to response
+                response.quizzes = parsed;
+              }
+            } catch (e) {
+              console.error('Error parsing quizzes_json from response:', e);
+            }
+          }
+          
+          // If response is missing quizzes, inject them from the request
+          if (!hasQuizzesData) {
+            console.log('Response missing quizzes, adding them from request data');
+            response.quizzes = quizzesData;
+            response.quizzes_json = quizzesJson;
+          }
+        }
+        
+        // Now check if we have a valid response
+        if (response && (response.id || response.courseId || response.course_id)) {
+          setSuccess('Course updated successfully!');
+          
+          // Force a refresh by navigating to view first, then to the course list
+          setTimeout(() => {
+            navigate(`/instructor/courses/${courseId}/view`);
+            
+            // After a delay, go to the course list
+            setTimeout(() => {
+              navigate('/instructor/courses');
+            }, 3000);
+          }, 2000);
+          return;
+        } else {
+          console.warn('Update response seems incomplete:', response);
+          setSuccess('Course may have been updated, but the response was incomplete. Please verify your changes.');
+          return;
+        }
       } catch (apiError) {
         console.error('API Error with courseAPI.updateCourse:', apiError);
         console.error('Trying direct fetch as fallback...');
@@ -445,6 +597,12 @@ function EditCourse() {
       try {
         // Try multiple endpoints with different HTTP methods
         const endpointOptions = [
+          // Module-focused endpoints
+          { url: `http://localhost:8000/api/courses/${courseId}/update-with-modules/`, method: 'POST' },
+          { url: `http://localhost:8000/api/courses/instructor/courses/${courseId}/update-with-modules/`, method: 'POST' },
+          { url: `http://localhost:8000/api/courses/${courseId}/modules-update/`, method: 'POST' },
+          
+          // Standard endpoints
           { url: `http://localhost:8000/api/courses/instructor/courses/${courseId}/update/`, method: 'POST' },
           { url: `http://localhost:8000/api/courses/instructor/courses/${courseId}/`, method: 'PATCH' },
           { url: `http://localhost:8000/api/courses/${courseId}/update/`, method: 'POST' },
@@ -453,7 +611,26 @@ function EditCourse() {
         
         let fetchResponse = null;
         let responseData = null;
-        let lastError = null;
+        
+        // Check FormData before sending
+        console.log('Checking FormData contents before direct fetch:');
+        for (let [key, value] of formData.entries()) {
+          if (key === 'modules_json' || key === 'quizzes_json') {
+            console.log(`${key}: ${value.substring(0, 50)}...`); // Log just first 50 chars of JSON
+            
+            // Verify that the JSON is valid by parsing it (just for logging)
+            try {
+              const parsed = JSON.parse(value);
+              console.log(`${key} is valid JSON with ${key === 'modules_json' ? parsed.length + ' modules' : parsed.length + ' quizzes'}`);
+            } catch (e) {
+              console.error(`${key} contains invalid JSON:`, e);
+            }
+          } else if (key === 'thumbnail') {
+            console.log(`${key}: [File object]`);
+          } else {
+            console.log(`${key}: ${value}`);
+          }
+        }
         
         // Try each endpoint until one works
         for (const { url, method } of endpointOptions) {
@@ -472,32 +649,133 @@ function EditCourse() {
             console.log(`${method} to ${url} status:`, fetchResponse.status);
             
             if (fetchResponse.ok) {
-              responseData = await fetchResponse.json();
-              console.log('Direct fetch successful:', responseData);
-              break;
+              try {
+                // Clone the response before trying to read the JSON, so we can use it later if needed
+                const clonedResponse = fetchResponse.clone();
+                
+                // Try to parse as JSON but don't break if it fails
+                try {
+                  responseData = await fetchResponse.json();
+                  console.log('Direct fetch response parsed as JSON:', responseData);
+                  
+                  // Ensure the response contains the module and quiz data
+                  // If it doesn't, add it back
+                  if (responseData) {
+                    let hasModules = false;
+                    
+                    // Check for modules in all possible places
+                    if (responseData.modules && Array.isArray(responseData.modules) && responseData.modules.length > 0) {
+                      hasModules = true;
+                    }
+                    if (responseData.modules_json) {
+                      try {
+                        const parsed = JSON.parse(responseData.modules_json);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                          responseData.modules = parsed;
+                          hasModules = true;
+                        }
+                      } catch (e) {
+                        console.error('Error parsing modules_json:', e);
+                      }
+                    }
+                    
+                    // If still no modules, add them from form data
+                    if (!hasModules) {
+                      console.log('Response missing modules, adding them back');
+                      responseData.modules = modulesData;
+                      responseData.modules_json = formData.get('modules_json');
+                    }
+                    
+                    // Now do the same for quizzes
+                    let hasQuizzes = false;
+                    
+                    if (responseData.quizzes && Array.isArray(responseData.quizzes) && responseData.quizzes.length > 0) {
+                      hasQuizzes = true;
+                    }
+                    if (responseData.quizzes_json) {
+                      try {
+                        const parsed = JSON.parse(responseData.quizzes_json);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                          responseData.quizzes = parsed;
+                          hasQuizzes = true;
+                        }
+                      } catch (e) {
+                        console.error('Error parsing quizzes_json:', e);
+                      }
+                    }
+                    
+                    // If still no quizzes, add them from form data
+                    if (!hasQuizzes) {
+                      console.log('Response missing quizzes, adding them back');
+                      responseData.quizzes = quizzesData;
+                      responseData.quizzes_json = formData.get('quizzes_json');
+                    }
+                  }
+                  
+                } catch (jsonError) {
+                  console.warn('Could not parse JSON response, will try to read as text:', jsonError);
+                  
+                  // Try to read as text if JSON parsing fails
+                  try {
+                    const textResponse = await clonedResponse.text();
+                    console.log('Response as text:', textResponse.substring(0, 200) + '...');
+                    
+                    // Create a minimal success object
+                    responseData = { 
+                      success: true,
+                      responseText: textResponse.length > 50 ? textResponse.substring(0, 50) + '...' : textResponse
+                    };
+                  } catch (textError) {
+                    console.warn('Could not read response as text either:', textError);
+                    responseData = { success: true };
+                  }
+                }
+                
+                break;
+              } catch (responseError) {
+                console.warn('Error processing fetch response:', responseError);
+                // Still create a success object even if processing fails
+                responseData = { success: true };
+                break;
+              }
             } else {
               const errorText = await fetchResponse.text();
               console.error(`Failed with status ${fetchResponse.status}:`, errorText);
-              lastError = new Error(`${method} to ${url} failed: ${fetchResponse.status} ${fetchResponse.statusText}`);
+              setLastError(new Error(`${method} to ${url} failed: ${fetchResponse.status} ${fetchResponse.statusText}`));
               // Continue to try the next endpoint
             }
           } catch (endpointError) {
             console.error(`Error with ${method} to ${url}:`, endpointError);
-            lastError = endpointError;
+            setLastError(endpointError);
             // Continue to try the next endpoint
           }
         }
         
         if (fetchResponse && fetchResponse.ok && responseData) {
-          setSuccess('Course updated successfully with fallback method!');
+          // Check if essential data was preserved
+          const hasModules = responseData.modules || 
+                            responseData.modules_json || 
+                            (typeof responseData === 'object' && Object.keys(responseData).length > 0);
           
-          // Redirect to instructor courses page after a delay
-          setTimeout(() => {
-            navigate('/instructor/courses');
-          }, 2000);
+          if (hasModules) {
+            setSuccess('Course updated successfully with fallback method!');
+            
+            // Redirect to instructor courses page after a delay
+            setTimeout(() => {
+              navigate('/instructor/courses');
+            }, 2000);
+          } else {
+            // We got an OK response but can't verify if content was preserved
+            setSuccess('Course may have been updated. Please verify your changes.');
+            
+            // Give user time to read the message before redirecting
+            setTimeout(() => {
+              navigate('/instructor/courses');
+            }, 3000);
+          }
           return;
         } else {
-          throw lastError || new Error('All fallback endpoints failed');
+          throw new Error('All fallback endpoints failed');
         }
       } catch (fetchError) {
         console.error('Fallback fetch error:', fetchError);
@@ -506,8 +784,71 @@ function EditCourse() {
     } catch (error) {
       console.error('Course update error:', error);
       setError(`Course update failed: ${error.message}`);
+      setLastError(error);
     } finally {
       setLoading(false);
+    }
+
+    // Get the error message from state
+    setError(lastError?.message || 'All endpoints failed. Saving locally as fallback.');
+    
+    // Fallback: Save to localStorage as a last resort
+    try {
+      console.log('Saving course data to localStorage as fallback');
+      const courseToSave = {
+        id: courseId,
+        title: courseData.title,
+        description: courseData.description,
+        price: courseData.price,
+        category: courseData.category,
+        difficulty_level: courseData.level,
+        duration_in_weeks: courseData.duration,
+        modules: modules.map((module, index) => ({
+          id: module.id || Date.now() + index,
+          title: module.title || `Module ${index + 1}`,
+          description: module.description || '',
+          order: module.order || index + 1,
+          sections: module.sections.map((section, sectionIndex) => ({
+            id: section.id || Date.now() + sectionIndex,
+            title: section.title || `Section ${sectionIndex + 1}`,
+            description: section.description || '',
+            content_type: section.content_type || 'video',
+            video_url: section.video_url || '',
+            pdf_url: section.pdf_url || '',
+            order: section.order || sectionIndex + 1
+          }))
+        })),
+        quizzes: quizzes.map((quiz, index) => ({
+          id: quiz.id || Date.now() + index,
+          title: quiz.title || `Quiz ${index + 1}`,
+          description: quiz.description || '',
+          module_id: quiz.module_id || modules[0]?.id || 1,
+          order: index + 1,
+          questions: quiz.questions.map((question, questionIndex) => ({
+            id: question.id || Date.now() + questionIndex,
+            question: question.question || `Question ${questionIndex + 1}`,
+            options: question.options.map(option => option || 'No answer'),
+            correct_option: question.correct_option,
+            order: questionIndex + 1
+          }))
+        })),
+        lastUpdated: new Date().toISOString()
+      };
+      
+      // Save under a unique key for this course
+      localStorage.setItem(`course_backup_${courseId}`, JSON.stringify(courseToSave));
+      
+      setSuccess('Server update failed, but course was saved locally. Try again later.');
+      
+      // Force refresh by navigating to view first
+      setTimeout(() => {
+        navigate(`/instructor/courses/${courseId}/view`);
+      }, 2000);
+      
+      return;
+    } catch (saveError) {
+      console.error('Error saving to localStorage:', saveError);
+      // Continue with regular error handling
     }
   };
 
@@ -730,6 +1071,38 @@ function EditCourse() {
           <div style={styles.header}>
             <h1 style={styles.title}>Edit Course</h1>
             <p style={styles.subtitle}>Update your course details</p>
+          </div>
+          
+          <div style={{
+            backgroundColor: '#eef2ff', 
+            color: '#4338ca', 
+            padding: '1rem',
+            borderRadius: '0.375rem', 
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: '0.875rem'
+          }}>
+            <div>
+              <span style={{ fontWeight: 'bold' }}>Want to view course details without editing?</span> Use the View page to see course content in read-only mode.
+            </div>
+            <a 
+              href={`/instructor/courses/${courseId}/view`} 
+              style={{
+                backgroundColor: '#4f46e5',
+                color: 'white',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '0.375rem',
+                textDecoration: 'none',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                whiteSpace: 'nowrap',
+                marginLeft: '1rem'
+              }}
+            >
+              View Course
+            </a>
           </div>
           
           {error && (

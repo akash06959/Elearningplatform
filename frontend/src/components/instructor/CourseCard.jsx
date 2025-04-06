@@ -9,8 +9,9 @@ import {
     VStack,
     HStack,
     Heading,
+    Flex,
 } from '@chakra-ui/react';
-import { EditIcon, DeleteIcon } from '@chakra-ui/icons';
+import { EditIcon, DeleteIcon, ViewIcon } from '@chakra-ui/icons';
 
 const CourseCard = ({ course, onPublishToggle, onDelete }) => {
     const handlePublishToggle = () => {
@@ -96,6 +97,17 @@ const CourseCard = ({ course, onPublishToggle, onDelete }) => {
                 <HStack spacing={2} mt={2}>
                     <Button
                         as={Link}
+                        to={`/instructor/courses/${course.id}/view`}
+                        leftIcon={<ViewIcon />}
+                        colorScheme="teal"
+                        size="sm"
+                        flex={1}
+                        variant="outline"
+                    >
+                        View
+                    </Button>
+                    <Button
+                        as={Link}
                         to={`/instructor/courses/${course.id}/edit`}
                         leftIcon={<EditIcon />}
                         colorScheme="blue"
@@ -105,6 +117,9 @@ const CourseCard = ({ course, onPublishToggle, onDelete }) => {
                     >
                         Edit
                     </Button>
+                </HStack>
+                
+                <HStack spacing={2}>
                     <Button
                         onClick={handlePublishToggle}
                         colorScheme={course.is_published ? 'orange' : 'green'}
