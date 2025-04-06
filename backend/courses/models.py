@@ -4,6 +4,8 @@ from django.utils.text import slugify
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -108,12 +110,116 @@ class Module(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
+    # Content type for the module
+    content_type = models.CharField(max_length=20, choices=[
+        ('video', 'Video'),
+        ('pdf', 'PDF Document'),
+        ('both', 'Both Video & PDF'),
+        ('text', 'Text Content'),
+        ('quiz', 'Quiz'),
+    ], default='video')
+    
+    # Fields for video content
+    video_url = models.URLField(max_length=500, blank=True, null=True)
+    video_id = models.CharField(max_length=100, blank=True, null=True, help_text="YouTube video ID for embedding")
+    
+    # Fields for PDF content
+    pdf_file = models.FileField(upload_to='module_pdfs/', blank=True, null=True)
+    pdf_url = models.URLField(max_length=500, blank=True, null=True)
+    
+    # Field for storing PDF directly in database
+    pdf_binary = models.BinaryField(blank=True, null=True)
+    pdf_filename = models.CharField(max_length=255, blank=True, null=True)
+    pdf_content_type = models.CharField(max_length=100, blank=True, null=True, default='application/pdf')
+    
     class Meta:
         ordering = ['order']
         unique_together = ['course', 'order']
     
     def __str__(self):
         return f"{self.course.title} - {self.title}"
+        
+    def save(self, *args, **kwargs):
+        """
+        Override save to handle file handling and keep content_type updated
+        """
+        # Update content type based on available content
+        if self.pdf_file or self.pdf_url or self.pdf_binary:
+            if self.video_url or self.video_id:
+                self.content_type = 'both'
+            else:
+                self.content_type = 'pdf'
+        elif self.video_url or self.video_id:
+            self.content_type = 'video'
+            
+        # If PDF file is uploaded, set the URL for convenience
+        # and save binary data to pdf_binary field
+        if self.pdf_file and not self.pdf_url:
+            need_url_update = True
+            
+            # Read the binary data from the file and store it in the pdf_binary field
+            try:
+                self.pdf_file.seek(0)  # Go to the start of the file
+                self.pdf_binary = self.pdf_file.read()  # Read the binary data
+                self.pdf_filename = self.pdf_file.name  # Store the filename
+            except Exception as e:
+                print(f"Error reading PDF file: {str(e)}")
+        else:
+            need_url_update = False
+            
+        # Save the model first to ensure file is saved
+        super().save(*args, **kwargs)
+        
+        # Update pdf_url after save if needed
+        if need_url_update and self.pdf_file:
+            try:
+                # Update URL without triggering another save
+                type(self).objects.filter(pk=self.pk).update(pdf_url=self.pdf_file.url)
+                # Update in-memory instance too
+                self.pdf_url = self.pdf_file.url
+            except Exception as e:
+                print(f"Error updating PDF URL: {str(e)}")
+    
+    def get_pdf_data(self):
+        """
+        Return the PDF binary data, either from the database or from the file
+        """
+        if self.pdf_binary:
+            return self.pdf_binary
+        elif self.pdf_file:
+            try:
+                self.pdf_file.open('rb')
+                data = self.pdf_file.read()
+                self.pdf_file.close()
+                return data
+            except Exception as e:
+                print(f"Error reading PDF file: {str(e)}")
+                return None
+        return None
+
+@receiver(post_save, sender=Module)
+def update_module_pdf_url(sender, instance, created, **kwargs):
+    """
+    Signal receiver to update pdf_url after the Module model has been saved
+    This runs after saving, so the file is already stored and has a URL
+    """
+    if instance.pdf_file and not instance.pdf_url:
+        try:
+            # Get the URL of the saved file
+            pdf_url = instance.pdf_file.url
+            print(f"Module PDF File URL: {pdf_url}")
+            
+            # Update the model without triggering the save method again
+            Module.objects.filter(pk=instance.pk).update(
+                pdf_url=pdf_url,
+                content_type='pdf' if not instance.video_url else 'both'
+            )
+            
+            # Also update the instance in memory
+            instance.pdf_url = pdf_url
+            print(f"Updated pdf_url for module {instance.pk}: {pdf_url}")
+        except Exception as e:
+            print(f"Error in post_save signal for Module: {str(e)}")
 
 class Section(models.Model):
     module = models.ForeignKey(Module, on_delete=models.CASCADE, related_name='sections', null=True)
@@ -153,11 +259,39 @@ class Section(models.Model):
         return f"{self.module.course.title} - {self.title}" if self.module else self.title
         
     def save(self, *args, **kwargs):
-        # If a new PDF file is uploaded, update the pdf_url to point to it
-        if self.pdf_file and not self.pdf_url:
-            self.pdf_url = self.pdf_file.url if self.pdf_file else None
-            
+        """
+        Override save to handle file handling and keep pdf_url in sync with pdf_file
+        """
+        # Capture the current state 
+        had_pdf_file_previously = bool(self.pdf_file) 
+        pdf_file_changed = hasattr(self, '_pdf_file_changed') and self._pdf_file_changed
+        
+        # First time save
+        is_new = self.pk is None
+        
+        # Call the standard save method first 
         super().save(*args, **kwargs)
+        
+        # Now that the file is saved, we can get its URL
+        if had_pdf_file_previously and (pdf_file_changed or not self.pdf_url):
+            try:
+                # At this point the file is saved and has a URL
+                # Direct database update to avoid recursion
+                pdf_url = self.pdf_file.url if self.pdf_file else None
+                type(self).objects.filter(pk=self.pk).update(pdf_url=pdf_url)
+                # Update this instance too
+                self.pdf_url = pdf_url
+                print(f"Updated pdf_url for section {self.pk}: {pdf_url}")
+            except Exception as e:
+                print(f"Error updating PDF URL: {str(e)}")
+        
+        # Make sure we handle content_type if it's changed
+        if self.pdf_file and not self.content_type.startswith('pdf'):
+            # Auto set content type if the file exists
+            if self.video_url:
+                type(self).objects.filter(pk=self.pk).update(content_type='both')
+            else:
+                type(self).objects.filter(pk=self.pk).update(content_type='pdf')
 
 class Lesson(models.Model):
     CONTENT_TYPES = (
@@ -255,9 +389,48 @@ class CourseTag(models.Model):
     name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
-
+    
     def __str__(self):
         return self.name
+
+class File(models.Model):
+    """
+    Model to handle file uploads for sections, particularly PDFs
+    """
+    FILE_TYPES = (
+        ('pdf', 'PDF Document'),
+        ('doc', 'Word Document'),
+        ('sheet', 'Spreadsheet'),
+        ('image', 'Image'),
+        ('video', 'Video'),
+        ('audio', 'Audio'),
+        ('other', 'Other'),
+    )
+    
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='files')
+    file = models.FileField(upload_to='section_files/')
+    file_type = models.CharField(max_length=10, choices=FILE_TYPES, default='pdf')
+    name = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.name or self.file.name} ({self.get_file_type_display()})"
+    
+    def save(self, *args, **kwargs):
+        # Set name from file if not provided
+        if not self.name and self.file:
+            self.name = self.file.name
+        super().save(*args, **kwargs)
+        
+        # Update section's content type if this is a PDF
+        if self.file_type == 'pdf' and self.section:
+            if self.section.content_type == 'video':
+                self.section.content_type = 'both'
+            elif self.section.content_type not in ['pdf', 'both']:
+                self.section.content_type = 'pdf'
+            self.section.save(update_fields=['content_type'])
 
 class UserProgress(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lesson_progress')
@@ -269,3 +442,27 @@ class UserProgress(models.Model):
     
     def __str__(self):
         return f"{self.user.username}'s progress on {self.lesson.title}"
+
+@receiver(post_save, sender=Section)
+def update_pdf_url(sender, instance, created, **kwargs):
+    """
+    Signal receiver to update pdf_url after the model has been saved
+    This runs after saving, so the file is already stored and has a URL
+    """
+    if instance.pdf_file and not instance.pdf_url:
+        try:
+            # Get the URL of the saved file
+            pdf_url = instance.pdf_file.url
+            print(f"PDF File URL: {pdf_url}")
+            
+            # Update the model without triggering the save method again
+            Section.objects.filter(pk=instance.pk).update(
+                pdf_url=pdf_url,
+                content_type='pdf' if not instance.video_url else 'both'
+            )
+            
+            # Also update the instance in memory
+            instance.pdf_url = pdf_url
+            print(f"Updated pdf_url for section {instance.pk}: {pdf_url}")
+        except Exception as e:
+            print(f"Error in post_save signal for Section: {str(e)}")

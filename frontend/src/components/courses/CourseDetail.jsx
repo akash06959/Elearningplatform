@@ -813,7 +813,7 @@ function CourseDetail() {
               <div className="text-center text-white">
                 <h1 className="text-4xl font-bold mb-2">{course?.title}</h1>
                 <p className="text-xl">
-                  By {course?.instructor?.name || 'Unknown Instructor'}
+                  By <span className="font-semibold bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text hover:from-purple-600 hover:to-blue-500 transition-all duration-300 animate-pulse">{course?.instructor?.name || 'Unknown Instructor'}</span>
                 </p>
               </div>
             </div>
@@ -865,26 +865,26 @@ function CourseDetail() {
                 </div>
                 
                 {/* Instructor info */}
-                <div className="bg-white rounded-lg shadow-md p-6">
-                  <h2 className="text-2xl font-bold mb-4">Your Instructor</h2>
+                <div className="bg-gradient-to-br from-white to-blue-50 rounded-lg shadow-md p-6 border border-blue-100 transition-all hover:shadow-lg">
+                  <h2 className="text-2xl font-bold mb-4 text-blue-600">Your Instructor</h2>
                   <div className="flex items-center mb-4">
                     {course?.instructor?.avatar ? (
                       <img 
                         src={course.instructor.avatar} 
                         alt={course.instructor.name} 
-                        className="w-16 h-16 rounded-full mr-4"
+                        className="w-20 h-20 rounded-full mr-4 border-2 border-blue-500 shadow-md"
                       />
                     ) : (
-                      <div className="w-16 h-16 rounded-full bg-gray-300 flex items-center justify-center mr-4">
-                        <span className="material-icons text-gray-500">person</span>
+                      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center mr-4 shadow-md">
+                        <span className="material-icons text-white text-3xl">person</span>
                       </div>
                     )}
                     <div>
-                      <h3 className="text-xl font-semibold">{course?.instructor?.name || 'Unknown Instructor'}</h3>
-                      <p className="text-gray-600">{course?.instructor?.title || 'Instructor'}</p>
+                      <h3 className="text-xl font-semibold bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">{course?.instructor?.name || 'Unknown Instructor'}</h3>
+                      <p className="text-gray-600 italic">{course?.instructor?.title || 'Instructor'}</p>
                     </div>
                   </div>
-                  <p className="text-gray-700">
+                  <p className="text-gray-700 bg-white bg-opacity-50 p-4 rounded-lg border border-blue-50">
                     {course?.instructor?.bio || 'No instructor information available.'}
                   </p>
                 </div>

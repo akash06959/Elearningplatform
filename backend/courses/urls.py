@@ -24,7 +24,14 @@ from .views import (
     unenroll_course,
     instructor_course_view,
     process_section_pdf,
-    update_course_with_files
+    update_course_with_files,
+    admin_fix_pdf_issue,
+    test_pdf_storage,
+    upload_pdf_fixed,
+    fix_content_types_view,
+    pdf_uploader_admin,
+    serve_module_pdf_from_db,
+    fix_module_pdf
 )
 
 app_name = 'courses'
@@ -56,9 +63,21 @@ urlpatterns = [
     path('instructor/remove-student/<int:student_id>/', views.remove_student, name='remove-student'),
     path('<int:pk>/update_status/', CourseStatusUpdateAPIView.as_view(), name='course-status-update-api'),
     
+    # Admin fix endpoint (temporary for development)
+    path('admin/fix-pdf/<int:section_id>/', views.admin_fix_pdf_issue, name='admin-fix-pdf'),
+    path('admin/test-pdf-storage/', views.test_pdf_storage, name='test-pdf-storage'),
+    
     # PDF File upload endpoints
     path('instructor/courses/<int:course_id>/sections/<int:section_id>/upload-pdf/', process_section_pdf, name='upload-section-pdf'),
     path('instructor/courses/<int:course_id>/update-with-files/', update_course_with_files, name='update-course-with-files'),
+    path('sections/<int:section_id>/upload-pdf-fixed/', upload_pdf_fixed, name='upload-pdf-fixed'),
+    path('modules/<int:module_id>/upload-pdf/', views.upload_module_pdf, name='upload-module-pdf'),
+    
+    # PDF serving from database
+    path('modules/<int:module_id>/pdf/', views.serve_module_pdf_from_db, name='serve-module-pdf-from-db'),
+    
+    # PDF fix endpoints
+    path('modules/<int:module_id>/fix-pdf/', views.fix_module_pdf, name='fix-module-pdf'),
     
     # Other endpoints
     path('create/', views.CreateCourseAPIView.as_view(), name='course_create_api'),
@@ -90,4 +109,6 @@ urlpatterns = [
     path('api/courses/<int:course_id>/quizzes/<int:quiz_id>/submit/', submit_quiz_results, name='submit_quiz_results'),
     path('api/courses/<int:course_id>/sections/<int:section_id>/notes/', save_section_notes, name='save_section_notes'),
     path('api/courses/<int:course_id>/unenroll/', unenroll_course, name='unenroll_course_api'),
+    path('admin/fix-content-type/', views.fix_content_types_view, name='fix-content-types'),
+    path('admin/pdf-uploader/', views.pdf_uploader_admin, name='pdf-uploader-admin'),
 ]

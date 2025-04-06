@@ -1,0 +1,322 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Uploader Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <h1 class="text-2xl font-bold mb-6">PDF Uploader Tool</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-lg font-semibold mb-4">Available Sections</h2>
+            
+            <div class="mb-4">
+                <input type="text" id="searchInput" class="w-full px-4 py-2 border border-gray-300 rounded" placeholder="Search sections...">
+            </div>
+            
+            <div id="sectionsList" class="space-y-4 max-h-[500px] overflow-y-auto">
+                <!-- Sections will be loaded here via JavaScript -->
+                <div class="flex items-center justify-center h-20">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="uploadForm" class="bg-white rounded-lg shadow-md p-6 hidden">
+            <h2 class="text-lg font-semibold mb-4">Upload PDF for <span id="sectionTitle" class="text-blue-600"></span></h2>
+            
+            <form id="pdfUploadForm" class="space-y-4">
+                <input type="hidden" id="sectionId" name="sectionId">
+                
+                <div>
+                    <label for="pdfFile" class="block text-sm font-medium text-gray-700 mb-1">Select PDF File</label>
+                    <input type="file" id="pdfFile" name="pdfFile" accept=".pdf" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                </div>
+                
+                <div class="flex items-center justify-between pt-4">
+                    <button type="button" id="cancelUpload" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                        Upload PDF
+                    </button>
+                </div>
+            </form>
+            
+            <div id="uploadResult" class="mt-4 hidden">
+                <div id="successResult" class="p-4 bg-green-50 text-green-800 rounded border border-green-200 hidden">
+                    <div class="flex items-start">
+                        <svg class="h-5 w-5 text-green-600 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <div>
+                            <h3 class="font-medium">PDF uploaded successfully!</h3>
+                            <p class="text-sm mt-1" id="successDetails"></p>
+                            <div class="mt-3">
+                                <a id="viewPdfLink" href="#" target="_blank" class="inline-block px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                                    View PDF
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="errorResult" class="p-4 bg-red-50 text-red-800 rounded border border-red-200 hidden">
+                    <div class="flex items-start">
+                        <svg class="h-5 w-5 text-red-600 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <div>
+                            <h3 class="font-medium">Error uploading PDF</h3>
+                            <p class="text-sm mt-1" id="errorDetails"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fetch all courses and sections
+            fetchSections();
+            
+            // Set up event listeners
+            document.getElementById('searchInput').addEventListener('input', filterSections);
+            document.getElementById('cancelUpload').addEventListener('click', hideUploadForm);
+            document.getElementById('pdfUploadForm').addEventListener('submit', handleFormSubmit);
+        });
+        
+        let allSections = [];
+        
+        async function fetchSections() {
+            try {
+                // Get CSRF token
+                const csrftoken = getCookie('csrftoken');
+                
+                // Use the Django REST framework API to get all courses
+                const response = await fetch('/admin/test-pdf-storage/', {
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Authorization': `Bearer ${localStorage.getItem('access') || ''}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch sections');
+                }
+                
+                const data = await response.json();
+                allSections = data.sections || [];
+                
+                renderSections(allSections);
+            } catch (error) {
+                console.error('Error fetching sections:', error);
+                document.getElementById('sectionsList').innerHTML = `
+                    <div class="p-4 bg-red-50 text-red-700 rounded">
+                        <p>Error loading sections: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderSections(sections) {
+            const container = document.getElementById('sectionsList');
+            
+            if (sections.length === 0) {
+                container.innerHTML = `
+                    <div class="p-4 bg-gray-50 rounded text-center">
+                        <p class="text-gray-500">No sections found</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = sections.map(section => `
+                <div class="border border-gray-200 rounded p-4 hover:bg-gray-50">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-medium">${section.title}</h3>
+                            <p class="text-sm text-gray-600">
+                                ${section.module ? `Module: ${section.module}` : 'No module'}
+                            </p>
+                            <p class="text-xs mt-1">
+                                <span class="px-2 py-1 bg-gray-100 rounded text-gray-700">
+                                    ID: ${section.id}
+                                </span>
+                                <span class="px-2 py-1 bg-gray-100 rounded text-gray-700 ml-1">
+                                    Type: ${section.content_type}
+                                </span>
+                            </p>
+                        </div>
+                        <div class="ml-4">
+                            ${section.has_pdf_file ? 
+                                `<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Has PDF</span>` : 
+                                `<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">No PDF</span>`
+                            }
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3 text-sm ${section.pdf_url ? '' : 'hidden'}">
+                        <div class="flex items-center text-gray-600">
+                            <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            PDF URL: 
+                            <span class="ml-1 text-blue-600 truncate max-w-xs">${section.pdf_url || 'None'}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3 flex">
+                        <button 
+                            class="upload-btn px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                            data-section-id="${section.id}"
+                            data-section-title="${section.title}"
+                        >
+                            ${section.has_pdf_file ? 'Replace PDF' : 'Upload PDF'}
+                        </button>
+                        
+                        ${section.pdf_url ? 
+                            `<a href="${section.pdf_url}" target="_blank" class="ml-2 px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300">
+                                View PDF
+                            </a>` : ''
+                        }
+                    </div>
+                </div>
+            `).join('');
+            
+            // Add event listeners to upload buttons
+            document.querySelectorAll('.upload-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const sectionId = btn.getAttribute('data-section-id');
+                    const sectionTitle = btn.getAttribute('data-section-title');
+                    showUploadForm(sectionId, sectionTitle);
+                });
+            });
+        }
+        
+        function filterSections() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            
+            if (!searchTerm) {
+                renderSections(allSections);
+                return;
+            }
+            
+            const filtered = allSections.filter(section => 
+                section.title.toLowerCase().includes(searchTerm) || 
+                (section.module && section.module.toLowerCase().includes(searchTerm))
+            );
+            
+            renderSections(filtered);
+        }
+        
+        function showUploadForm(sectionId, sectionTitle) {
+            document.getElementById('sectionId').value = sectionId;
+            document.getElementById('sectionTitle').textContent = sectionTitle;
+            document.getElementById('uploadForm').classList.remove('hidden');
+            document.getElementById('uploadResult').classList.add('hidden');
+            document.getElementById('pdfFile').value = '';
+        }
+        
+        function hideUploadForm() {
+            document.getElementById('uploadForm').classList.add('hidden');
+        }
+        
+        async function handleFormSubmit(event) {
+            event.preventDefault();
+            
+            const sectionId = document.getElementById('sectionId').value;
+            const pdfFile = document.getElementById('pdfFile').files[0];
+            
+            if (!pdfFile) {
+                showError('Please select a PDF file to upload');
+                return;
+            }
+            
+            if (!pdfFile.name.toLowerCase().endsWith('.pdf')) {
+                showError('Please select a valid PDF file');
+                return;
+            }
+            
+            try {
+                // Create FormData
+                const formData = new FormData();
+                formData.append('pdf_file', pdfFile);
+                
+                // Get CSRF token
+                const csrftoken = getCookie('csrftoken');
+                
+                // Send request to upload PDF
+                const response = await fetch(`/sections/${sectionId}/upload-pdf-fixed/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken,
+                        'Authorization': `Bearer ${localStorage.getItem('access') || ''}`
+                    },
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    showSuccess(result);
+                    // Refresh the sections list
+                    fetchSections();
+                } else {
+                    showError(result.error || 'Failed to upload PDF');
+                }
+            } catch (error) {
+                console.error('Error uploading PDF:', error);
+                showError(error.message);
+            }
+        }
+        
+        function showSuccess(result) {
+            const successResult = document.getElementById('successResult');
+            const successDetails = document.getElementById('successDetails');
+            const viewPdfLink = document.getElementById('viewPdfLink');
+            const errorResult = document.getElementById('errorResult');
+            
+            successDetails.textContent = `File "${result.file_name}" was uploaded successfully.`;
+            viewPdfLink.href = result.absolute_url || result.pdf_url;
+            
+            successResult.classList.remove('hidden');
+            errorResult.classList.add('hidden');
+            document.getElementById('uploadResult').classList.remove('hidden');
+        }
+        
+        function showError(message) {
+            const successResult = document.getElementById('successResult');
+            const errorResult = document.getElementById('errorResult');
+            const errorDetails = document.getElementById('errorDetails');
+            
+            errorDetails.textContent = message;
+            
+            successResult.classList.add('hidden');
+            errorResult.classList.remove('hidden');
+            document.getElementById('uploadResult').classList.remove('hidden');
+        }
+        
+        // Helper function to get CSRF token from cookies
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html> 

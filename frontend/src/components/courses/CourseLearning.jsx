@@ -57,6 +57,7 @@ function CourseLearning() {
         }
         
         // Fetch course data
+        console.log("CourseLearning: Fetching course data with ID:", courseId);
         const courseData = await courseAPI.getCourseById(courseId);
         
         if (!courseData) {
@@ -79,9 +80,20 @@ function CourseLearning() {
             if (module.sections && module.sections.length > 0) {
               module.sections.forEach((section, sIdx) => {
                 console.log(`   * Section ${sIdx + 1}: ${section.title}`);
+                console.log(`     ID: ${section.id}`);
                 console.log(`     Content type: ${section.content_type}`);
-                console.log(`     Video URL: ${section.video_url}`);
-                console.log(`     PDF URL: ${section.pdf_url}`);
+                console.log(`     Video URL: ${section.video_url || 'None'}`);
+                console.log(`     PDF URL: ${section.pdf_url || 'None'}`);
+                console.log(`     Has PDF file: ${section.has_pdf_file || false}`);
+                
+                // Special PDF debugging
+                if (section.content_type === 'pdf' || section.content_type === 'both') {
+                  if (!section.pdf_url) {
+                    console.warn(`⚠️ PDF section ${section.id} has no PDF URL!`);
+                  } else {
+                    console.log(`✅ PDF section ${section.id} has URL: ${section.pdf_url}`);
+                  }
+                }
               });
             }
           });
@@ -130,7 +142,8 @@ function CourseLearning() {
                   title: firstSection.title,
                   content_type: firstSection.content_type,
                   video_url: firstSection.video_url,
-                  pdf_url: firstSection.pdf_url
+                  pdf_url: firstSection.pdf_url,
+                  has_pdf_file: firstSection.has_pdf_file
                 });
                 
                 setCurrentSection(firstSection);
@@ -391,22 +404,18 @@ function CourseLearning() {
     }
   };
 
+  // Render YouTube video from URL
   const renderYouTubeVideo = (url) => {
-    console.log("Rendering YouTube video with URL:", url);
-    
-    if (!url) {
-      console.warn("No video URL provided to renderYouTubeVideo");
-      return <div className="p-4 bg-gray-100 rounded text-center">No video URL provided</div>;
-    }
-    
-    // Extract YouTube video ID
-    let videoId = '';
+    if (!url) return <div className="p-4 bg-gray-100 rounded text-center">No video URL provided</div>;
     
     try {
-      console.log("Parsing YouTube URL:", url);
+      // Extract video ID from YouTube URL
+      const video_url = new URL(url);
+      let videoId = '';
+      
       // Handle different YouTube URL formats
       if (url.includes('youtube.com/watch')) {
-        const urlParams = new URL(url).searchParams;
+        const urlParams = new URLSearchParams(video_url.search);
         videoId = urlParams.get('v');
         console.log("Extracted video ID from youtube.com/watch:", videoId);
       } else if (url.includes('youtu.be/')) {
@@ -425,16 +434,42 @@ function CourseLearning() {
       }
       
       console.log("Final video ID for embedding:", videoId);
-      // Return iframe with YouTube embed
+      // Return iframe with YouTube embed in a larger, more prominent container
       return (
-        <div className="aspect-w-16 aspect-h-9">
-          <iframe
-            src={`https://www.youtube.com/embed/${videoId}`}
-            title="YouTube video player"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            className="w-full h-full rounded-lg"
-          ></iframe>
+        <div className="bg-black rounded-lg shadow-lg overflow-hidden">
+          <div className="relative" style={{ paddingTop: '56.25%', /* 16:9 aspect ratio */ }}>
+            <iframe
+              src={`https://www.youtube.com/embed/${videoId}`}
+              title="YouTube video player"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full"
+              style={{ 
+                minHeight: '480px', 
+                width: '100%',
+                border: 'none'
+              }}
+            ></iframe>
+          </div>
+          <div className="bg-gray-900 text-white px-4 py-3 flex justify-between items-center">
+            <div className="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-red-500" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/>
+              </svg>
+              <span className="font-medium">Video Content</span>
+            </div>
+            <a 
+              href={url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 transition-colors text-sm flex items-center"
+            >
+              Open in YouTube
+              <svg className="ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
         </div>
       );
     } catch (error) {
@@ -442,13 +477,19 @@ function CourseLearning() {
       
       // Fallback to direct link
       return (
-        <div className="p-4 bg-gray-100 rounded text-center">
-          <p className="mb-2">Unable to embed video. Error: {error.message}</p>
+        <div className="p-6 bg-gray-100 rounded-lg text-center shadow">
+          <div className="mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-red-500 mb-2" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/>
+            </svg>
+            <p className="text-lg font-medium mb-2">Unable to embed video</p>
+            <p className="text-sm text-gray-600 mb-4">Error: {error.message}</p>
+          </div>
           <a 
             href={url} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
+            className="inline-block px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
           >
             Watch on YouTube
           </a>
@@ -457,62 +498,193 @@ function CourseLearning() {
     }
   };
 
-  const renderPDF = (url) => {
-    if (!url) return <div className="p-4 bg-gray-100 rounded text-center">No PDF URL provided</div>;
+  const renderPDF = (url, fromDb = false, moduleId = null) => {
+    if (!url && !moduleId) {
+      console.error("Attempted to render PDF with no URL or module ID provided");
+      return (
+        <div className="p-6 bg-gray-50 rounded-lg border border-gray-200 text-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-3" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5h3v-1h-2v-1h2V8h-3V7h3.5c.55 0 1 .45 1 1v1.5c0 .55-.45 1-1 1h-2v1h3V13H8.5v-1.5z"/>
+          </svg>
+          <h3 className="text-lg font-medium mb-2">No PDF Document Available</h3>
+          <p className="text-gray-600">This section doesn't have a PDF document attached.</p>
+        </div>
+      );
+    }
+    
+    console.log("Rendering PDF with:", {url, fromDb, moduleId});
     
     try {
-      // Check if it's a valid URL
-      new URL(url);
+      // Generate the correct URL for the PDF
+      let pdfUrl = url;
       
-      // Return PDF viewer or link
+      if (fromDb && moduleId) {
+        // Use the database PDF endpoint
+        pdfUrl = `http://localhost:8000/api/courses/modules/${moduleId}/pdf/`;
+        console.log("Using database PDF URL:", pdfUrl);
+      } else if (url) {
+        // Handle both direct URLs and local media paths
+        let isExternalUrl = url.startsWith('http://') || url.startsWith('https://');
+        
+        // If the URL doesn't start with http/https, assume it's a relative path from media
+        if (!isExternalUrl) {
+          // Try to use Django's media URL
+          const MEDIA_URL = 'http://localhost:8000';
+          pdfUrl = `${MEDIA_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+          console.log("Converting relative PDF path to absolute URL:", pdfUrl);
+        }
+      }
+      
+      // Make sure we have a valid URL
+      try {
+        new URL(pdfUrl);
+      } catch (urlError) {
+        console.error("Invalid PDF URL:", urlError);
+        throw new Error("The PDF URL is not valid");
+      }
+      
+      // Determine a document title from the URL or module ID
+      let documentTitle = 'PDF Document';
+      if (pdfUrl) {
+        const urlParts = pdfUrl.split('/');
+        const pdfFileName = urlParts[urlParts.length - 1].split('?')[0]; // Remove query params
+        documentTitle = decodeURIComponent(pdfFileName).replace(/\+/g, ' ');
+      } else if (moduleId) {
+        documentTitle = `Module ${moduleId} PDF`;
+      }
+      
+      // Return enhanced PDF viewer
       return (
-        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-medium">Course Material (PDF)</h3>
+        <div className="bg-gray-800 rounded-lg overflow-hidden shadow-lg">
+          {/* Header bar */}
+          <div className="bg-gray-900 text-white p-3 flex items-center justify-between">
+            <div className="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-red-500 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5h3v-1h-2v-1h2V8h-3V7h3.5c.55 0 1 .45 1 1v1.5c0 .55-.45 1-1 1h-2v1h3V13H8.5v-1.5z"/>
+              </svg>
+              <div className="truncate max-w-xs">
+                <h3 className="font-medium text-sm">PDF Document</h3>
+                <p className="text-xs text-gray-400 truncate">{documentTitle}</p>
+              </div>
+            </div>
+            
             <a 
-              href={url} 
+              href={pdfUrl} 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="text-blue-600 hover:underline text-sm flex items-center"
+              className="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1 rounded flex items-center transition-colors"
+              title="Open PDF in new tab"
             >
-              Open in New Tab
+              Open PDF
               <svg className="ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
             </a>
           </div>
           
-          <div className="bg-white border border-gray-200 rounded-lg p-2 h-96">
-            <iframe
-              src={url}
-              title="PDF Document"
-              className="w-full h-full"
-            ></iframe>
+          {/* PDF content */}
+          <div className="bg-gray-700 pt-1 pb-3 px-3">
+            <div className="relative" style={{ paddingBottom: "56.25%" }}>
+              <iframe
+                src={pdfUrl}
+                title="PDF Document Viewer"
+                className="absolute inset-0 w-full h-full border-0 bg-white rounded"
+                style={{ minHeight: "480px" }}
+                allowFullScreen
+              ></iframe>
+            </div>
           </div>
           
-          <div className="mt-3 text-sm text-gray-600">
-            <p>If the PDF doesn't display correctly, please use the "Open in New Tab" link above.</p>
+          {/* Footer bar */}
+          <div className="bg-gray-900 text-gray-300 p-2 flex justify-between text-xs">
+            <span className="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Scroll to navigate through pages
+            </span>
+            <span className="text-gray-400">
+              {fromDb ? 'Database PDF' : 'File storage PDF'}
+            </span>
           </div>
         </div>
       );
     } catch (error) {
       console.error('Error rendering PDF:', error);
       
-      // Fallback to direct link
+      // Enhanced fallback display with more helpful information
       return (
-        <div className="p-4 bg-gray-100 rounded text-center">
-          <p className="mb-2">Unable to embed PDF.</p>
+        <div className="p-6 bg-gray-50 rounded-lg border border-gray-200 text-center shadow">
+          <div className="mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-red-600 mb-3" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5h3v-1h-2v-1h2V8h-3V7h3.5c.55 0 1 .45 1 1v1.5c0 .55-.45 1-1 1h-2v1h3V13H8.5v-1.5z"/>
+            </svg>
+            <h3 className="text-lg font-medium mb-2">Unable to Display PDF</h3>
+            <p className="text-gray-600 mb-3">
+              We couldn't display the PDF document in the viewer. This could be due to browser restrictions, 
+              cross-origin policies, or an issue with the document.
+            </p>
+            <div className="bg-gray-100 p-3 mb-4 rounded text-left overflow-x-auto">
+              <p className="text-xs font-mono text-gray-700">{url}</p>
+              {error && <p className="text-xs font-mono text-red-600 mt-1">Error: {error.message}</p>}
+            </div>
+          </div>
+          
           <a 
             href={url} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
+            className="inline-block px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
           >
             Download PDF
           </a>
         </div>
       );
     }
+  };
+
+  const renderModulePDF = (module) => {
+    // Detailed logging for debugging
+    console.log("renderModulePDF called with module:", {
+      id: module?.id,
+      title: module?.title,
+      content_type: module?.content_type,
+      has_pdf_binary: module?.has_pdf_binary,
+      pdf_url: module?.pdf_url,
+      pdf_file: module?.pdf_file
+    });
+    
+    // Check if module has PDF content
+    if (!module) {
+      console.error("renderModulePDF: No module provided");
+      return null;
+    }
+    
+    // Check for database PDF (pdf_binary field)
+    const hasDatabasePDF = module.has_pdf_binary;
+    
+    // Check for file-based PDF
+    const hasFilePDF = module.pdf_url || module.pdf_file;
+    
+    // If no PDF content, return null
+    if (!hasDatabasePDF && !hasFilePDF) {
+      console.error("renderModulePDF: No PDF content available in module", module.id);
+      return null;
+    }
+    
+    console.log(`Module ${module.id} PDF source:`, hasDatabasePDF ? "Database" : "File system");
+    
+    const pdfUrl = module.pdf_url || module.pdf_file;
+    
+    return (
+      <div className="mt-5">
+        <h3 className="text-xl font-medium mb-3">Module Material</h3>
+        {hasDatabasePDF ? 
+          renderPDF(null, true, module.id) : 
+          renderPDF(pdfUrl)
+        }
+      </div>
+    );
   };
 
   const renderQuizModal = () => {
@@ -821,10 +993,25 @@ function CourseLearning() {
                           </div>
                         )}
                         
-                        {currentSection.content_type === 'pdf' && currentSection.pdf_url && (
+                        {currentSection.content_type === 'pdf' && (
                           <div className="mb-6">
-                            {console.log("Rendering PDF content with URL:", currentSection.pdf_url)}
-                            {renderPDF(currentSection.pdf_url)}
+                            {console.log("Trying to render PDF content with:", {
+                              url: currentSection.pdf_url,
+                              hasPdfFile: currentSection.has_pdf_file
+                            })}
+                            {currentSection.pdf_url ? (
+                              renderPDF(currentSection.pdf_url)
+                            ) : (
+                              <div className="p-6 bg-gray-100 rounded-lg text-center shadow">
+                                <div className="mb-4">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-red-600 mb-2" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5h3v-1h-2v-1h2V8h-3V7h3.5c.55 0 1 .45 1 1v1.5c0 .55-.45 1-1 1h-2v1h3V13H8.5v-1.5zM12 17.5l.88-2.5h.76l.88 2.5h-1L13.3 17h-.6l-.22.5H12zm2.95-4.5h-1.5l-1.1 3h1.1l.2-.57h1.1l.2.57h1.1l-1.1-3zM14 16l.33-1 .33 1H14z"/>
+                                  </svg>
+                                  <p className="text-lg font-medium mb-2">No PDF Available</p>
+                                  <p className="text-sm text-gray-600 mb-4">The PDF for this section could not be found.</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                         
@@ -842,15 +1029,27 @@ function CourseLearning() {
                                 {renderPDF(currentSection.pdf_url)}
                               </div>
                             )}
+                            {!currentSection.pdf_url && !currentSection.video_url && (
+                              <div className="p-6 bg-gray-100 rounded-lg text-center">
+                                <p className="text-gray-700">No content available for this section.</p>
+                                {console.log("No content URLs available in 'both' mode")}
+                              </div>
+                            )}
                           </div>
                         )}
                         
-                        {/* Display message if no content */}
-                        {(!currentSection.video_url && !currentSection.pdf_url) && (
-                          <div className="p-6 bg-gray-100 rounded-lg text-center">
-                            <p className="text-gray-700">No content available for this section.</p>
-                            {console.log("No content URLs available for this section")}
-                          </div>
+                        {/* Display module-level PDF if available */}
+                        {currentModule && (currentModule.content_type === 'pdf' || currentModule.pdf_url || currentModule.pdf_file || currentModule.has_pdf_binary) && (
+                          <>
+                            {console.log("Trying to render module PDF:", {
+                              module_id: currentModule.id,
+                              content_type: currentModule.content_type,
+                              pdf_url: currentModule.pdf_url,
+                              pdf_file: currentModule.pdf_file,
+                              has_pdf_binary: currentModule.has_pdf_binary
+                            })}
+                            {renderModulePDF(currentModule)}
+                          </>
                         )}
                         
                         {/* Mark complete button */}

@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
-from .models import Course, Category, Section, Lesson, Review, Module, UserProgress, Quiz
+from .models import Course, Category, Section, Lesson, Review, Module, UserProgress, Quiz, File
 from .forms import CourseForm, SectionForm, LessonForm, ReviewForm
 from accounts.models import User
 from enrollments.models import Enrollment, Progress
@@ -33,6 +33,20 @@ from django.http import Http404
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 import json
+import os
+import datetime
+import time
+
+# Custom permissions
+class IsInstructorOrAdminUser(permissions.BasePermission):
+    """
+    Custom permission to only allow instructors or admin users to access the view.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated and 
+            (request.user.is_staff or request.user.user_type == 'instructor')
+        )
 
 class CourseListView(ListView):
     model = Course
@@ -1082,13 +1096,25 @@ class InstructorCourseDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             for module in course.modules.all().order_by('order'):
                 sections_data = []
                 for section in module.sections.all().order_by('order'):
+                    # For PDF files, ensure we provide the full URL
+                    pdf_url = None
+                    if section.pdf_file:
+                        pdf_url = request.build_absolute_uri(section.pdf_file.url)
+                    elif section.pdf_url:
+                        if section.pdf_url.startswith('http'):
+                            pdf_url = section.pdf_url
+                        else:
+                            pdf_url = request.build_absolute_uri(section.pdf_url)
+                    
                     sections_data.append({
                         'id': section.id,
                         'title': section.title,
                         'description': section.description,
                         'content_type': section.content_type,
                         'video_url': section.video_url,
-                        'pdf_url': section.pdf_url,
+                        'video_id': section.video_id,
+                        'pdf_url': pdf_url,
+                        'has_pdf_file': bool(section.pdf_file),
                         'order': section.order
                     })
                 
@@ -1431,35 +1457,56 @@ class InstructorCourseDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class CourseContentAPIView(generics.RetrieveAPIView):
-    """
-    API endpoint that returns a course's complete content structure
-    including modules, sections, and lessons
-    """
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CourseSerializer
-    queryset = Course.objects.all()
-
-    def get_queryset(self):
-        return Course.objects.prefetch_related(
-            Prefetch('modules', queryset=Module.objects.order_by('order')),
-            Prefetch('modules__sections', queryset=Section.objects.order_by('order')),
-            Prefetch('modules__sections__lessons', queryset=Lesson.objects.order_by('order')),
-            'modules__sections__lessons__user_progress'
-        )
-
-    def get(self, request, *args, **kwargs):
-        course = self.get_object()
-        
-        # Check if user is enrolled
-        if not course.enrollments.filter(user=request.user, status='active').exists():
-            return Response(
-                {"detail": "You must be enrolled in this course to view its content."},
-                status=status.HTTP_403_FORBIDDEN
+class CourseContentAPIView(APIView):
+    permission_classes = [AllowAny]  # For now, allow anyone to view course content
+    
+    def get(self, request, pk):
+        try:
+            course = get_object_or_404(Course, id=pk)
+            # Check if we should include private data
+            include_private = request.user.is_authenticated and (
+                request.user == course.instructor or request.user.is_staff
             )
-        
-        serializer = self.get_serializer(course)
-        return Response(serializer.data)
+            
+            # Get modules
+            modules = course.modules.all().order_by('order')
+            
+            # For each module, check if it has PDF data in the database
+            for module in modules:
+                if module.pdf_binary:
+                    module.has_pdf_binary_field = True  # Add temporary field for serialization
+                else:
+                    module.has_pdf_binary_field = False
+            
+            # Serialize modules with sections
+            serialized_modules = ModuleSerializer(
+                modules, many=True, context={'request': request}
+            ).data
+            
+            # For debugging only: Print PDF data status
+            for i, module in enumerate(modules):
+                print(f"Module {module.id}: {module.title}")
+                print(f"  - Has PDF binary: {bool(module.pdf_binary)}")
+                print(f"  - PDF URL: {module.pdf_url}")
+                print(f"  - Content type: {module.content_type}")
+                if i < len(serialized_modules):
+                    print(f"  - Serialized has_pdf_binary: {serialized_modules[i].get('has_pdf_binary')}")
+            
+            return Response({
+                'id': course.id,
+                'title': course.title,
+                'description': course.description,
+                'instructor': {
+                    'id': course.instructor.id,
+                    'username': course.instructor.username,
+                    'name': course.instructor.get_full_name()
+                },
+                'modules': serialized_modules
+            })
+        except Exception as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -1673,6 +1720,16 @@ class CourseDetailAPIView(generics.RetrieveAPIView):
                 # Get sections data for this module
                 sections_data = []
                 for section in module.sections.all().order_by('order'):
+                    # For PDF files, ensure we provide the full URL
+                    pdf_url = None
+                    if section.pdf_file:
+                        pdf_url = request.build_absolute_uri(section.pdf_file.url)
+                    elif section.pdf_url:
+                        if section.pdf_url.startswith('http'):
+                            pdf_url = section.pdf_url
+                        else:
+                            pdf_url = request.build_absolute_uri(section.pdf_url)
+                            
                     section_data = {
                         'id': section.id,
                         'title': section.title,
@@ -1680,7 +1737,9 @@ class CourseDetailAPIView(generics.RetrieveAPIView):
                         'order': section.order,
                         'content_type': section.content_type,
                         'video_url': section.video_url,
-                        'pdf_url': section.pdf_url,
+                        'video_id': section.video_id,
+                        'pdf_url': pdf_url,
+                        'has_pdf_file': bool(section.pdf_file),
                     }
                     sections_data.append(section_data)
                 
@@ -2003,32 +2062,57 @@ def unenroll_course(request, course_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def instructor_course_view(request, course_id):
-    """API view to get complete course details including modules and sections for instructors"""
+    """
+    Get detailed course information for instructors, including modules and sections.
+    """
     try:
         # Get the course
-        course = get_object_or_404(Course, id=course_id, instructor=request.user)
+        course = get_object_or_404(Course, id=course_id)
         
-        # Build the basic course data
+        # Check if user is the instructor
+        if course.instructor != request.user:
+            return Response(
+                {'error': 'You are not the instructor of this course'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        # Build the response data
         course_data = {
             'id': course.id,
             'title': course.title,
             'description': course.description,
             'price': str(course.price),
-            'difficulty_level': course.difficulty,
+            'category': course.category.name if course.category else None,
+            'thumbnail': request.build_absolute_uri(course.thumbnail.url) if course.thumbnail else None,
+            'difficulty_level': course.difficulty_level,
             'duration_in_weeks': course.duration_in_weeks,
-            'is_published': course.is_published,
             'status': course.status,
-            'category': course.category.name if course.category else 'Uncategorized',
-            'thumbnail': course.thumbnail.url if course.thumbnail else None,
-            'thumbnail_url': course.thumbnail.url if course.thumbnail else None,
+            'is_published': course.is_published,
+            'modules': []
         }
         
-        # Get modules data
-        modules_data = []
+        # Add modules and sections
         for module in course.modules.all().order_by('order'):
-            # Get sections data for this module
-            sections_data = []
+            module_data = {
+                'id': module.id,
+                'title': module.title,
+                'description': module.description,
+                'order': module.order,
+                'sections': []
+            }
+            
+            # Add sections for this module
             for section in module.sections.all().order_by('order'):
+                # For PDF files, ensure we provide the full URL
+                pdf_url = None
+                if section.pdf_file:
+                    pdf_url = request.build_absolute_uri(section.pdf_file.url)
+                elif section.pdf_url:
+                    if section.pdf_url.startswith('http'):
+                        pdf_url = section.pdf_url
+                    else:
+                        pdf_url = request.build_absolute_uri(section.pdf_url)
+                
                 section_data = {
                     'id': section.id,
                     'title': section.title,
@@ -2036,34 +2120,24 @@ def instructor_course_view(request, course_id):
                     'order': section.order,
                     'content_type': section.content_type,
                     'video_url': section.video_url,
-                    'pdf_url': section.pdf_url,
+                    'video_id': section.video_id,
+                    'pdf_url': pdf_url,
+                    'has_pdf_file': bool(section.pdf_file),
                 }
-                sections_data.append(section_data)
+                module_data['sections'].append(section_data)
             
-            # Add module data with its sections
-            module_data = {
-                'id': module.id,
-                'title': module.title,
-                'description': module.description,
-                'order': module.order,
-                'sections': sections_data
-            }
-            modules_data.append(module_data)
-        
-        # Add modules to course data - use both keys to ensure compatibility
-        course_data['modules'] = modules_data
-        
-        # Log the structure of what we're returning
-        print(f"Returning course data for ID {course_id} with {len(modules_data)} modules")
-        for idx, module in enumerate(modules_data):
-            print(f"Module {idx+1}: {module['title']} with {len(module.get('sections', []))} sections")
+            course_data['modules'].append(module_data)
             
-        return Response(course_data)
+        return Response(course_data, status=status.HTTP_200_OK)
         
-    except Exception as e:
-        print(f"Error in instructor_course_view: {str(e)}")
+    except Course.DoesNotExist:
         return Response(
-            {'message': f'Error getting course details: {str(e)}'},
+            {'error': 'Course not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -2074,6 +2148,10 @@ def process_section_pdf(request, course_id, section_id):
     Process a PDF file upload for a specific section
     """
     try:
+        # Print debug information
+        print(f"Processing PDF upload for section {section_id} in course {course_id}")
+        print(f"Files in request: {request.FILES.keys()}")
+        
         # Check if the user is the instructor of the course
         course = get_object_or_404(Course, id=course_id)
         if course.instructor != request.user:
@@ -2094,12 +2172,14 @@ def process_section_pdf(request, course_id, section_id):
             
         # Check if a file was uploaded
         if 'pdf_file' not in request.FILES:
+            print("No PDF file was provided in the request")
             return Response(
                 {'error': 'No PDF file was provided'},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
         pdf_file = request.FILES['pdf_file']
+        print(f"Received PDF file: {pdf_file.name}, size: {pdf_file.size} bytes")
         
         # Check if it's a PDF (simple check based on file extension)
         if not pdf_file.name.lower().endswith('.pdf'):
@@ -2108,27 +2188,51 @@ def process_section_pdf(request, course_id, section_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
+        # Clear existing PDF file if any to avoid keeping old files
+        if section.pdf_file:
+            section.pdf_file.delete(save=False)
+            print(f"Deleted existing PDF file for section {section_id}")
+            
         # Save the PDF file to the section
         section.pdf_file = pdf_file
         
-        # Update content type if not already set
-        if section.content_type not in ['pdf', 'both']:
-            if section.video_url:
-                section.content_type = 'both'
-            else:
-                section.content_type = 'pdf'
-                
+        # Update content type
+        if section.video_url:
+            section.content_type = 'both'
+        else:
+            section.content_type = 'pdf'
+            
+        # Add a tracking flag to indicate file change
+        section._pdf_file_changed = True
+        
+        # Save the section to store the file
         section.save()
         
-        # Return the updated section data
-        serializer = SectionSerializer(
-            section,
-            context={'request': request}
-        )
+        # Refresh from DB to get updated values after signals run
+        section.refresh_from_db()
         
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # Get the full URL to the PDF file for the frontend
+        if section.pdf_file:
+            pdf_url = request.build_absolute_uri(section.pdf_file.url)
+        else:
+            pdf_url = section.pdf_url
+            
+        print(f"PDF file saved successfully. URL: {pdf_url}")
+        
+        return Response({
+            'success': True,
+            'message': 'PDF file uploaded successfully',
+            'section_id': section.id,
+            'content_type': section.content_type,
+            'pdf_url': pdf_url,
+            'pdf_file_url': pdf_url,
+            'file_name': pdf_file.name
+        }, status=status.HTTP_200_OK)
         
     except Exception as e:
+        print(f"Error in process_section_pdf: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return Response(
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -2154,7 +2258,7 @@ def update_course_with_files(request, course_id):
         description = request.data.get('description')
         price = request.data.get('price')
         category_id = request.data.get('category')
-        difficulty_level = request.data.get('difficulty_level')
+        difficulty_level = request.data.get('difficulty_level', 'beginner')
         duration_in_weeks = request.data.get('duration_in_weeks')
         
         # Update basic course details
@@ -2181,21 +2285,41 @@ def update_course_with_files(request, course_id):
             
         course.save()
         
+        # Process PDF uploads metadata first
+        pdf_uploads = []
+        pdf_uploads_meta = request.data.get('pdf_uploads_meta')
+        
+        if pdf_uploads_meta:
+            try:
+                pdf_uploads = json.loads(pdf_uploads_meta)
+                print(f"PDF uploads metadata: {pdf_uploads}")
+            except json.JSONDecodeError:
+                pdf_uploads = []
+                print("Failed to parse PDF uploads metadata")
+                
+        # Create a dictionary to store the uploaded PDF files
+        pdf_files = {}
+        pdf_uploads_count = request.data.get('pdf_uploads_count', 0)
+        try:
+            pdf_uploads_count = int(pdf_uploads_count)
+            print(f"Processing {pdf_uploads_count} PDF uploads")
+        except (ValueError, TypeError):
+            pdf_uploads_count = 0
+            
+        # Extract all PDF files from the request
+        for i in range(pdf_uploads_count):
+            file_key = f'section_pdf_{i}'
+            if file_key in request.FILES:
+                file_obj = request.FILES[file_key]
+                print(f"Found PDF file: {file_key}, filename: {file_obj.name}")
+                pdf_files[file_key] = file_obj
+        
         # Process modules and sections data from JSON
         modules_json = request.data.get('modules_json')
         if modules_json:
             try:
                 modules_data = json.loads(modules_json)
-                
-                # Check PDF files metadata if provided
-                pdf_uploads_meta = request.data.get('pdf_uploads_meta')
-                pdf_uploads = []
-                
-                if pdf_uploads_meta:
-                    try:
-                        pdf_uploads = json.loads(pdf_uploads_meta)
-                    except json.JSONDecodeError:
-                        pdf_uploads = []
+                print(f"Processing {len(modules_data)} modules")
                 
                 # Track existing modules to detect deletions
                 existing_module_ids = set(course.modules.values_list('id', flat=True))
@@ -2243,11 +2367,73 @@ def update_course_with_files(request, course_id):
                                 section.video_url = section_data.get('video_url', section.video_url)
                                 section.video_id = section_data.get('video_id', section.video_id)
                                 
-                                # Only update pdf_url if it's not being replaced by a file upload
-                                if not section_data.get('has_new_pdf', False):
+                                # Process PDF file uploads
+                                pdf_key = section_data.get('pdf_key')
+                                has_new_pdf = section_data.get('has_new_pdf', False)
+                                
+                                if has_new_pdf and pdf_key:
+                                    print(f"Processing new PDF for section {section_id}, key: {pdf_key}")
+                                    
+                                    # Find the matching file using the matching metadata
+                                    matching_pdf_meta = None
+                                    for meta in pdf_uploads:
+                                        if meta.get('pdfKey') == pdf_key:
+                                            matching_pdf_meta = meta
+                                            break
+                                    
+                                    if matching_pdf_meta:
+                                        pdf_index = matching_pdf_meta.get('pdfIndex')
+                                        file_key = f'section_pdf_{pdf_index}'
+                                        
+                                        if file_key in pdf_files:
+                                            print(f"Found file for key {file_key}")
+                                            pdf_file = pdf_files[file_key]
+                                            
+                                            # Clear existing PDF file if any
+                                            if section.pdf_file:
+                                                section.pdf_file.delete(save=False)
+                                                
+                                            # Assign the file
+                                            section.pdf_file = pdf_file
+                                            
+                                            # Set content type based on whether there's a video
+                                            if section.video_url:
+                                                section.content_type = 'both'
+                                            else:
+                                                section.content_type = 'pdf'
+                                                
+                                            # Add tracking flag for file change
+                                            section._pdf_file_changed = True
+                                            
+                                            # Don't set pdf_url directly - let the save method handle it
+                                            print(f"Assigned PDF file {pdf_file.name} to section {section_id}")
+                                    else:
+                                        # Try to find by index
+                                        for i in range(pdf_uploads_count):
+                                            file_key = f'section_pdf_{i}'
+                                            if file_key in pdf_files:
+                                                if section.pdf_file:
+                                                    section.pdf_file.delete(save=False)
+                                                
+                                                section.pdf_file = pdf_files[file_key]
+                                                
+                                                if section.video_url:
+                                                    section.content_type = 'both'
+                                                else:
+                                                    section.content_type = 'pdf'
+                                                    
+                                                # Add tracking flag for file change
+                                                section._pdf_file_changed = True
+                                                
+                                                print(f"Assigned PDF file {pdf_files[file_key].name} to section {section_id} by index")
+                                                break
+                                elif not has_new_pdf:
+                                    # Only update PDF URL if not replacing with a file
                                     section.pdf_url = section_data.get('pdf_url', section.pdf_url)
                                 
                                 section.save()
+                                # After save, refresh to get updated pdf_url
+                                section.refresh_from_db()
                                 updated_section_ids.add(section.id)
                             else:
                                 # Create new section
@@ -2261,24 +2447,32 @@ def update_course_with_files(request, course_id):
                                     video_id=section_data.get('video_id', ''),
                                     pdf_url=section_data.get('pdf_url', '')
                                 )
-                                updated_section_ids.add(section.id)
-                            
-                            # Handle PDF file uploads for this section
-                            if section_data.get('has_new_pdf', False) and section_data.get('pdf_key'):
+                                
+                                # Process PDF file for new section
                                 pdf_key = section_data.get('pdf_key')
+                                has_new_pdf = section_data.get('has_new_pdf', False)
                                 
-                                # Find PDF upload metadata
-                                pdf_meta = next((item for item in pdf_uploads if item.get('pdfKey') == pdf_key), None)
-                                
-                                # Find the actual file in the request.FILES
-                                for i in range(len(pdf_uploads)):
-                                    file_key = f'section_pdf_{i}'
-                                    if file_key in request.FILES:
-                                        # If we found the right file, attach it to the section
-                                        if not pdf_meta or i == pdf_meta.get('pdfIndex'):
-                                            section.pdf_file = request.FILES[file_key]
-                                            section.save()
+                                if has_new_pdf and pdf_key:
+                                    print(f"Processing new PDF for new section, key: {pdf_key}")
+                                    
+                                    # Find the matching file using the metadata
+                                    matching_pdf_meta = None
+                                    for meta in pdf_uploads:
+                                        if meta.get('pdfKey') == pdf_key:
+                                            matching_pdf_meta = meta
                                             break
+                                    
+                                    if matching_pdf_meta:
+                                        pdf_index = matching_pdf_meta.get('pdfIndex')
+                                        file_key = f'section_pdf_{pdf_index}'
+                                        
+                                        if file_key in pdf_files:
+                                            pdf_file = pdf_files[file_key]
+                                            section.pdf_file = pdf_file
+                                            print(f"Assigned PDF file {pdf_file.name} to new section")
+                                            section.save()
+                                
+                                updated_section_ids.add(section.id)
                         
                         # Delete sections that weren't updated
                         sections_to_delete = existing_section_ids - updated_section_ids
@@ -2296,16 +2490,506 @@ def update_course_with_files(request, course_id):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Return the updated course data
-        serializer = CourseSerializer(
-            course,
-            context={'request': request}
+        # Return the updated course data with complete module and section details
+        course_data = {
+            'id': course.id,
+            'title': course.title,
+            'description': course.description,
+            'price': str(course.price),
+            'difficulty_level': course.difficulty_level,
+            'duration_in_weeks': course.duration_in_weeks,
+            'is_published': course.is_published,
+            'status': course.status,
+            'category': course.category.name if course.category else 'Uncategorized',
+            'thumbnail': course.thumbnail.url if course.thumbnail else None,
+            'modules': []
+        }
+        
+        # Add modules with their sections
+        for module in course.modules.all().order_by('order'):
+            module_data = {
+                'id': module.id,
+                'title': module.title,
+                'description': module.description,
+                'order': module.order,
+                'sections': []
+            }
+            
+            for section in module.sections.all().order_by('order'):
+                # Create PDF URL from file if available
+                pdf_url = None
+                if section.pdf_file:
+                    request_host = request.build_absolute_uri('/').rstrip('/')
+                    pdf_url = f"{request_host}{section.pdf_file.url}" if section.pdf_file else section.pdf_url
+                else:
+                    pdf_url = section.pdf_url
+                
+                section_data = {
+                    'id': section.id,
+                    'title': section.title,
+                    'description': section.description,
+                    'order': section.order,
+                    'content_type': section.content_type,
+                    'video_url': section.video_url,
+                    'video_id': section.video_id,
+                    'pdf_url': pdf_url,
+                    'has_pdf_file': bool(section.pdf_file)
+                }
+                module_data['sections'].append(section_data)
+            
+            course_data['modules'].append(module_data)
+        
+        return Response(course_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsInstructorOrAdminUser])
+def admin_fix_pdf_issue(request, section_id):
+    """
+    Admin utility to help fix PDF issues with sections - only for development testing
+    """
+    try:
+        # Get the section
+        section = get_object_or_404(Section, id=section_id)
+        print(f"Fixing PDF for section {section_id}")
+        
+        # Test PDF URL from the web
+        pdf_url = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+        
+        # Set a direct URL for testing
+        section.pdf_url = pdf_url
+        section.content_type = 'pdf'
+        section.save()
+        
+        # Log existing state
+        print(f"After direct URL update - PDF URL: {section.pdf_url}, Content Type: {section.content_type}")
+        
+        # Return all relevant section data for debugging
+        response_data = {
+            'success': True,
+            'message': 'Fixed section with test PDF URL',
+            'section_id': section.id,
+            'content_type': section.content_type,
+            'title': section.title,
+            'pdf_url': section.pdf_url,
+            'video_url': section.video_url,
+            'has_pdf_file': bool(section.pdf_file),
+            'module_id': section.module_id if section.module else None
+        }
+        
+        # For frontend display, include the absolute URL
+        if section.pdf_file:
+            response_data['pdf_file_url'] = request.build_absolute_uri(section.pdf_file.url)
+        
+        print(f"Response data: {response_data}")
+        return Response(response_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        print(f"Error in admin_fix_pdf_issue: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsInstructorOrAdminUser])
+def test_pdf_storage(request):
+    """
+    View for testing and displaying sections with pdf file status
+    """
+    # Get all sections with their PDFs
+    sections = Section.objects.all().order_by('-id')
+    
+    sections_data = []
+    for section in sections:
+        # Get the section's file (if any)
+        file = None
+        if section.content_type == Section.PDF:
+            try:
+                file = section.files.get(file_type='pdf')
+            except File.DoesNotExist:
+                file = None
+        
+        # Add section data
+        section_data = {
+            'id': section.id,
+            'title': section.title,
+            'content_type': section.get_content_type_display(),
+            'module': section.module.title if section.module else None,
+            'has_pdf_file': file is not None,
+            'pdf_url': file.file.url if file else None,
+        }
+        sections_data.append(section_data)
+    
+    # Check if test section should be created
+    create_test = request.query_params.get('create_test', 'false').lower() == 'true'
+    
+    if create_test:
+        # Create a test section with PDF
+        test_section = Section.objects.create(
+            title=f"Test PDF Section {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            content_type=Section.PDF,
+            module=Module.objects.first()  # Use the first module as parent
         )
         
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # Add section to response
+        sections_data.insert(0, {
+            'id': test_section.id,
+            'title': test_section.title,
+            'content_type': test_section.get_content_type_display(),
+            'module': test_section.module.title if test_section.module else None,
+            'has_pdf_file': False,
+            'pdf_url': None,
+        })
+    
+    return Response({
+        'sections': sections_data,
+        'created_test': create_test
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsInstructorOrAdminUser])
+def upload_pdf_fixed(request, section_id):
+    """
+    Endpoint to upload a PDF file to a section with proper error handling
+    """
+    try:
+        # Check if the section exists
+        section = Section.objects.get(id=section_id)
+        
+        # Make sure the section content type is PDF
+        if section.content_type != Section.PDF:
+            return Response({
+                'success': False,
+                'error': f"Section content type must be PDF, got {section.get_content_type_display()}"
+            }, status=400)
+        
+        # Check if a file was uploaded
+        if 'pdf_file' not in request.FILES:
+            return Response({
+                'success': False, 
+                'error': 'No PDF file was uploaded'
+            }, status=400)
+        
+        pdf_file = request.FILES['pdf_file']
+        
+        # Validate file type
+        if not pdf_file.name.lower().endswith('.pdf'):
+            return Response({
+                'success': False,
+                'error': 'File must be a PDF'
+            }, status=400)
+        
+        # Delete existing PDF file if any
+        try:
+            existing_file = section.files.get(file_type='pdf')
+            existing_file.delete()
+        except File.DoesNotExist:
+            pass
+        
+        # Create a new file record
+        file = File.objects.create(
+            file=pdf_file,
+            file_type='pdf',
+            section=section,
+            name=pdf_file.name
+        )
+        
+        # Get the file URL
+        file_url = file.file.url
+        
+        # Build the absolute URL
+        absolute_url = request.build_absolute_uri(file_url)
+        
+        return Response({
+            'success': True,
+            'message': 'PDF file uploaded successfully',
+            'file_name': pdf_file.name,
+            'pdf_url': file_url,
+            'absolute_url': absolute_url,
+            'section_id': section.id,
+            'section_title': section.title
+        })
+        
+    except Section.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': f'Section with ID {section_id} not found'
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+# New view for serving the PDF uploader admin tool
+def pdf_uploader_admin(request):
+    """
+    View for serving the PDF uploader admin tool
+    """
+    # Only allow staff/admin users to access this page
+    if not request.user.is_authenticated or not request.user.is_staff:
+        return redirect('admin:login')
+        
+    return render(request, 'courses/pdf_uploader.html')
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsInstructorOrAdminUser])
+def fix_content_types_view(request):
+    """
+    View to fix content types for sections that have PDF files but wrong content type
+    """
+    if not request.user.is_staff:
+        return redirect('admin:login')
+        
+    # Find sections that have PDF files but wrong content type
+    updated_sections = []
+    
+    try:
+        # Get all sections
+        sections = Section.objects.all()
+        
+        for section in sections:
+            # Check if section has PDF file
+            has_pdf = bool(section.pdf_file) or bool(section.pdf_url)
+            content_type_mismatch = False
+            
+            # Determine if content type needs fixing
+            if has_pdf and section.content_type != 'pdf' and section.content_type != 'both':
+                # Section has PDF but wrong content type
+                old_content_type = section.content_type
+                
+                # Set the correct content type
+                if section.video_url:
+                    section.content_type = 'both'
+                else:
+                    section.content_type = 'pdf'
+                
+                # Save the section
+                section.save()
+                
+                # Add to updated sections
+                updated_sections.append({
+                    'id': section.id,
+                    'title': section.title,
+                    'old_content_type': old_content_type,
+                    'new_content_type': section.content_type
+                })
+    
+        return Response({
+            'success': True,
+            'message': f'Fixed content types for {len(updated_sections)} sections',
+            'updated_sections': updated_sections
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_module_pdf(request, module_id):
+    """
+    Upload a PDF file to a module directly
+    """
+    try:
+        # Get the module
+        module = get_object_or_404(Module, id=module_id)
+        
+        # Check if the user is the instructor
+        if module.course.instructor != request.user:
+            return Response(
+                {'error': 'You do not have permission to update this module'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if a file was uploaded
+        if 'pdf_file' not in request.FILES:
+            return Response(
+                {'error': 'No PDF file was provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        pdf_file = request.FILES['pdf_file']
+        
+        # Check if it's a PDF file
+        if not pdf_file.name.lower().endswith('.pdf'):
+            return Response(
+                {'error': 'The uploaded file is not a PDF'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Clear existing PDF file if any
+        if module.pdf_file:
+            module.pdf_file.delete(save=False)
+            
+        # Save the PDF file to the module
+        module.pdf_file = pdf_file
+        
+        # Update content type
+        if module.video_url:
+            module.content_type = 'both'
+        else:
+            module.content_type = 'pdf'
+            
+        # Save the module
+        module.save()
+        
+        # Get the full URL to the PDF file for the frontend
+        pdf_url = request.build_absolute_uri(module.pdf_file.url) if module.pdf_file else None
+        
+        return Response({
+            'success': True,
+            'message': 'PDF file uploaded successfully',
+            'module_id': module.id,
+            'module_title': module.title,
+            'content_type': module.content_type,
+            'pdf_url': pdf_url,
+            'file_name': pdf_file.name
+        }, status=status.HTTP_200_OK)
         
     except Exception as e:
         return Response(
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+@api_view(['GET'])
+def serve_module_pdf_from_db(request, module_id):
+    """
+    Serve a PDF directly from the database.
+    This view retrieves the PDF binary data stored in the Module model
+    and returns it as an HTTP response.
+    """
+    try:
+        module = Module.objects.get(id=module_id)
+        
+        # Check if the module has PDF data stored
+        if not module.pdf_binary:
+            return Response({
+                'error': 'No PDF data found for this module'
+            }, status=404)
+            
+        # Get the PDF data
+        pdf_data = module.get_pdf_data()
+        if not pdf_data:
+            return Response({
+                'error': 'Failed to retrieve PDF data'
+            }, status=500)
+            
+        # Return the PDF with appropriate content type and filename
+        from django.http import HttpResponse
+        response = HttpResponse(pdf_data, content_type=module.pdf_content_type or 'application/pdf')
+        filename = module.pdf_filename or f'module_{module.id}.pdf'
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        return response
+        
+    except Module.DoesNotExist:
+        return Response({
+            'error': 'Module not found'
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=500)
+
+@api_view(['GET'])
+def fix_module_pdf(request, module_id):
+    """
+    Fix a module's PDF content type issues.
+    This view attempts to repair modules where PDFs were uploaded but not properly processed.
+    """
+    try:
+        module = Module.objects.get(id=module_id)
+        
+        # Store original values for reporting
+        original_content_type = module.content_type
+        had_pdf_binary = bool(module.pdf_binary)
+        had_pdf_url = bool(module.pdf_url)
+        
+        # Get the PDF file from media storage
+        updated = False
+        try:
+            import os
+            from django.conf import settings
+            
+            # Look for PDFs in the media directory with the module's ID in the name
+            media_dir = os.path.join(settings.MEDIA_ROOT, 'module_pdfs')
+            if os.path.exists(media_dir):
+                pdf_files = [f for f in os.listdir(media_dir) 
+                           if f.endswith('.pdf') and str(module.id) in f]
+                
+                # If we found PDF files, use the first one
+                if pdf_files:
+                    file_path = os.path.join(media_dir, pdf_files[0])
+                    # Read the file into the pdf_binary field
+                    with open(file_path, 'rb') as f:
+                        module.pdf_binary = f.read()
+                        module.pdf_filename = pdf_files[0]
+                        module.pdf_content_type = 'application/pdf'
+                    
+                    # Set the PDF URL to the media URL
+                    pdf_url = f'/media/module_pdfs/{pdf_files[0]}'
+                    module.pdf_url = pdf_url
+                    
+                    # Update content type
+                    if module.video_url:
+                        module.content_type = 'both'
+                    else:
+                        module.content_type = 'pdf'
+                    
+                    # Save the module
+                    module.save()
+                    updated = True
+        except Exception as e:
+            print(f"Error fixing module PDF: {str(e)}")
+            return Response({
+                'error': f'Error fixing module PDF: {str(e)}'
+            }, status=500)
+        
+        if updated:
+            return Response({
+                'success': True,
+                'message': 'Module PDF fixed successfully',
+                'changes': {
+                    'content_type': {
+                        'before': original_content_type,
+                        'after': module.content_type
+                    },
+                    'pdf_binary': {
+                        'before': had_pdf_binary,
+                        'after': bool(module.pdf_binary)
+                    },
+                    'pdf_url': {
+                        'before': had_pdf_url,
+                        'after': bool(module.pdf_url)
+                    }
+                }
+            })
+        else:
+            # If we couldn't find any PDF files, allow manual upload
+            return Response({
+                'success': False,
+                'message': 'No PDF files found for this module. Please upload a PDF file.',
+                'upload_url': f'/api/courses/modules/{module.id}/upload-pdf/'
+            })
+        
+    except Module.DoesNotExist:
+        return Response({
+            'error': 'Module not found'
+        }, status=404)
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=500)
