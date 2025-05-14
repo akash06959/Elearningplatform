@@ -29,7 +29,7 @@ const ModuleForm = ({ initialData, courseId, onSuccess }) => {
       
       if (initialData?.id) {
         // Update existing module
-        await api.put(`/courses/modules/${initialData.id}/`, moduleData);
+        await api.put(`/api/courses/modules/${initialData.id}/`, moduleData);
         moduleId = initialData.id;
         
         if (onSuccess) {
@@ -37,7 +37,7 @@ const ModuleForm = ({ initialData, courseId, onSuccess }) => {
         }
       } else {
         // Create new module
-        const response = await api.post(`/courses/modules/`, {
+        const response = await api.post(`/api/courses/modules/`, {
           ...moduleData,
           course_id: courseId
         });

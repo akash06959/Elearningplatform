@@ -17,6 +17,10 @@ import ForgotPassword from './components/auth/ForgotPassword';
 import InstructorRoute from './components/auth/InstructorRoute';
 import InstructorDashboard from './components/instructor/InstructorDashboard';
 import InstructorList from './components/instructors/InstructorList';
+import UserProfile from './components/users/UserProfile';
+import EditProfile from './components/users/EditProfile';
+import EnrollmentList from './components/enrollments/EnrollmentList';
+import NotificationList from './components/notifications/NotificationList';
 
 // Auth check component that uses AuthContext
 const RequireAuth = ({ children }) => {
@@ -111,6 +115,16 @@ function App() {
         }
       />
       
+      <Route
+        path="/enrollments"
+        element={<EnrollmentList />}
+      />
+      
+      <Route
+        path="/notifications"
+        element={<NotificationList />}
+      />
+      
       {/* Course routes - Make sure CourseLearning route comes before CourseDetail */}
       <Route
         path="/courses/:courseId/learn"
@@ -201,6 +215,25 @@ function App() {
         element={
           <RequireAuth>
             <InstructorList />
+          </RequireAuth>
+        }
+      />
+
+      {/* User Profile Routes */}
+      <Route
+        path="/profile"
+        element={
+          <RequireAuth>
+            <UserProfile />
+          </RequireAuth>
+        }
+      />
+      
+      <Route
+        path="/profile/edit"
+        element={
+          <RequireAuth>
+            <EditProfile />
           </RequireAuth>
         }
       />

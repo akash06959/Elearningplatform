@@ -1,8 +1,17 @@
 import axios from 'axios';
 
+const BASE_URL = 'http://localhost:8000/api';
+
+// Helper function to ensure proper URL construction
+const buildUrl = (endpoint) => {
+  // Remove leading/trailing slashes and combine with base URL
+  const cleanEndpoint = endpoint.replace(/^\/+|\/+$/g, '');
+  return `${cleanEndpoint}`;
+};
+
 // Create axios instance with base URL
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -27,46 +36,85 @@ export const authAPI = {
 
   login: async (credentials) => {
     try {
-      console.log('Login request:', {
+      console.log('Login attempt:', {
         username: credentials.username,
         user_type: credentials.user_type
       });
-      const response = await api.post('/login/', credentials);
-      console.log('Login response:', response.data);
+
+      // Make sure password is included in the request
+      if (!credentials.password) {
+        throw new Error('Password is required');
+      }
+
+      const response = await api.post('/api/login/', {
+        username: credentials.username,
+        password: credentials.password,
+        user_type: credentials.user_type
+      });
+
+      console.log('Login response:', response);
       
-      if (!response.data.access || !response.data.refresh) {
-        throw new Error('Invalid response from server: Missing token fields');
+      const responseData = response.data;
+      if (!responseData || !responseData.access || !responseData.refresh) {
+        throw new Error('Invalid response from server: Missing required fields');
       }
       
-      // Store user type information consistently
-      const userData = {
-        username: credentials.username,
-        role: credentials.user_type,
-        ...response.data
+      // Store tokens
+      const tokens = {
+        access: responseData.access,
+        refresh: responseData.refresh
       };
-      
-      // Store tokens and user info in localStorage
-      localStorage.setItem('authTokens', JSON.stringify({
-        access: response.data.access,
-        refresh: response.data.refresh
-      }));
-      
-      localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('authTokens', JSON.stringify(tokens));
 
+      // Set the authorization header for subsequent requests
+      api.defaults.headers.common['Authorization'] = `Bearer ${tokens.access}`;
+      
+      // Return the complete user data
+      return {
+        username: responseData.username,
+        user_type: responseData.user_type,
+        first_name: responseData.first_name,
+        last_name: responseData.last_name,
+        ...tokens
+      };
+    } catch (error) {
+      console.error('Login error:', error);
+      
+      // Handle specific error cases
+      if (error.response?.status === 401) {
+        throw new Error('Invalid username or password');
+      }
+      
+      if (error.response?.status === 403) {
+        throw new Error('Access denied. Please check your user type.');
+      }
+      
+      throw new Error(
+        error.response?.data?.message || 
+        error.response?.data?.detail || 
+        error.message || 
+        'Login failed. Please try again.'
+      );
+    }
+  },
+
+  fetchProfile: async () => {
+    try {
+      const response = await api.get('/accounts/profile');
       return response.data;
     } catch (error) {
-      console.error('Login error:', error.response?.data || error.message);
+      console.error('Profile fetch error:', error.response?.data || error.message);
       throw new Error(
         error.response?.data?.message || 
         error.response?.data?.error || 
-        'Login failed. Please check your credentials and try again.'
+        'Failed to fetch profile data.'
       );
     }
   },
 
   refreshToken: async (refresh) => {
     try {
-      const response = await api.post('/token/refresh/', { refresh });
+      const response = await api.post('/token/refresh', { refresh });
       return {
         access: response.data.access,
         refresh: refresh

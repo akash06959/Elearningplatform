@@ -797,168 +797,187 @@ function CourseDetail() {
       ) : (
         <>
           {/* Banner with course image */}
-          <div className="w-full bg-gray-800 h-64 relative">
+          <div className="w-full bg-gradient-to-r from-blue-300 to-blue-400 h-56 relative overflow-hidden">
             {course?.cover_image ? (
               <img 
                 src={course.cover_image} 
                 alt={course.title} 
-                className="w-full h-full object-cover" 
+                className="w-full h-full object-cover opacity-80" 
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
                 <Text color="white" fontSize="2xl">{course?.title}</Text>
               </div>
             )}
-            <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-              <div className="text-center text-white">
-                <h1 className="text-4xl font-bold mb-2">{course?.title}</h1>
-                <p className="text-xl">
-                  By <span className="font-semibold bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text hover:from-purple-600 hover:to-blue-500 transition-all duration-300 animate-pulse">{course?.instructor?.name || 'Unknown Instructor'}</span>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center">
+              <div className="text-center text-white max-w-3xl px-4">
+                <h1 className="text-3xl md:text-4xl font-bold mb-2 text-shadow-lg">{course?.title}</h1>
+                <p className="text-lg mb-2">
+                  By <span className="font-semibold px-3 py-1 rounded-full bg-blue-400/80 text-white">{course?.instructor?.name || 'Unknown Instructor'}</span>
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="container mx-auto px-4 py-8">
-            <div className="flex flex-col lg:flex-row gap-8">
+          <div className="container mx-auto px-4 py-4 max-w-6xl">
+            <div className="flex flex-col lg:flex-row gap-5">
               {/* Left column - Course details */}
               <div className="lg:w-2/3">
-                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                  <h2 className="text-2xl font-bold mb-4">About This Course</h2>
-                  <p className="text-gray-700 mb-6">{course?.description}</p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    <div className="flex items-center">
-                      <span className="material-icons text-blue-500 mr-2">category</span>
-                      <span>Category: {course?.category || 'Uncategorized'}</span>
+                {/* Course info cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                  <div className="flex items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="material-icons text-blue-500 mr-2">category</span>
+                    <div>
+                      <p className="text-xs text-blue-500">Category</p>
+                      <p className="font-medium text-gray-800 text-sm">{course?.category || 'Uncategorized'}</p>
                     </div>
-                    <div className="flex items-center">
-                      <span className="material-icons text-blue-500 mr-2">school</span>
-                      <span>Level: {course?.difficulty_level || 'All Levels'}</span>
+                  </div>
+                  <div className="flex items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="material-icons text-blue-500 mr-2">school</span>
+                    <div>
+                      <p className="text-xs text-blue-500">Level</p>
+                      <p className="font-medium text-gray-800 text-sm">{course?.difficulty_level || 'All Levels'}</p>
                     </div>
-                    <div className="flex items-center">
-                      <span className="material-icons text-blue-500 mr-2">schedule</span>
-                      <span>Duration: {course?.duration_in_weeks || 'Self-paced'} {course?.duration_in_weeks === 1 ? 'week' : 'weeks'}</span>
+                  </div>
+                  <div className="flex items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="material-icons text-blue-500 mr-2">schedule</span>
+                    <div>
+                      <p className="text-xs text-blue-500">Duration</p>
+                      <p className="font-medium text-gray-800 text-sm">{course?.duration_in_weeks || 'Self-paced'} {course?.duration_in_weeks === 1 ? 'week' : 'weeks'}</p>
                     </div>
-                    <div className="flex items-center">
-                      <span className="material-icons text-blue-500 mr-2">people</span>
-                      <span>Students: {course?.total_students || 0}</span>
+                  </div>
+                  <div className="flex items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="material-icons text-blue-500 mr-2">people</span>
+                    <div>
+                      <p className="text-xs text-blue-500">Enrollment</p>
+                      <p className="font-medium text-gray-800 text-sm">{course?.total_students || 0} students</p>
                     </div>
                   </div>
                 </div>
 
+                {/* About This Course */}
+                <div className="bg-white rounded-lg shadow-sm p-5 mb-5 border border-blue-100">
+                  <h2 className="text-xl font-bold mb-3 text-gray-800 border-b pb-2 border-blue-100">About This Course</h2>
+                  <p className="text-gray-700 leading-relaxed">{course?.description}</p>
+                </div>
+
                 {/* What you'll learn section */}
-                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                  <h2 className="text-2xl font-bold mb-4">What You'll Learn</h2>
+                <div className="bg-white rounded-lg shadow-sm p-5 mb-5 border border-blue-100">
+                  <h2 className="text-xl font-bold mb-3 text-gray-800 border-b pb-2 border-blue-100">What You'll Learn</h2>
                   {course?.modules?.length > 0 ? (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {course.modules.map((module, index) => (
-                        <div key={module.id || index} className="border-l-4 border-blue-500 pl-4">
-                          <h3 className="text-lg font-semibold">{module.title}</h3>
-                          <p className="text-gray-600">{module.description || 'No description provided'}</p>
+                        <div key={module.id || index} className="border-l-4 border-blue-400 pl-3 py-2 bg-blue-50 rounded-r-lg">
+                          <h3 className="text-base font-semibold text-gray-800">{module.title}</h3>
+                          <p className="text-gray-600 text-sm">{module.description || 'No description provided'}</p>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-600">Course content is being prepared.</p>
+                    <div className="flex flex-col items-center justify-center p-4 bg-blue-50 rounded-lg border border-dashed border-blue-200">
+                      <span className="material-icons text-blue-400 text-2xl mb-2">pending_actions</span>
+                      <p className="text-gray-600 text-sm">Course content is being prepared.</p>
+                    </div>
                   )}
                 </div>
                 
                 {/* Instructor info */}
-                <div className="bg-gradient-to-br from-white to-blue-50 rounded-lg shadow-md p-6 border border-blue-100 transition-all hover:shadow-lg">
-                  <h2 className="text-2xl font-bold mb-4 text-blue-600">Your Instructor</h2>
-                  <div className="flex items-center mb-4">
+                <div className="bg-white rounded-lg shadow-sm p-5 border border-blue-100">
+                  <h2 className="text-xl font-bold mb-3 text-gray-800 border-b pb-2 border-blue-100">Your Instructor</h2>
+                  <div className="flex items-center gap-4">
                     {course?.instructor?.avatar ? (
                       <img 
                         src={course.instructor.avatar} 
                         alt={course.instructor.name} 
-                        className="w-20 h-20 rounded-full mr-4 border-2 border-blue-500 shadow-md"
+                        className="w-16 h-16 rounded-full border-2 border-white shadow object-cover"
                       />
                     ) : (
-                      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center mr-4 shadow-md">
-                        <span className="material-icons text-white text-3xl">person</span>
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-300 to-blue-400 flex items-center justify-center shadow">
+                        <span className="material-icons text-white text-2xl">person</span>
                       </div>
                     )}
                     <div>
-                      <h3 className="text-xl font-semibold bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">{course?.instructor?.name || 'Unknown Instructor'}</h3>
-                      <p className="text-gray-600 italic">{course?.instructor?.title || 'Instructor'}</p>
+                      <h3 className="text-lg font-semibold text-blue-600">{course?.instructor?.name || 'Unknown Instructor'}</h3>
+                      <p className="text-gray-600 text-sm">{course?.instructor?.title || 'Instructor'}</p>
                     </div>
                   </div>
-                  <p className="text-gray-700 bg-white bg-opacity-50 p-4 rounded-lg border border-blue-50">
-                    {course?.instructor?.bio || 'No instructor information available.'}
-                  </p>
                 </div>
               </div>
-              
+
               {/* Right column - Enrollment card */}
               <div className="lg:w-1/3">
-                <div className="bg-white rounded-lg shadow-md p-6 sticky top-20">
-                  {course?.thumbnail && (
-                    <img 
-                      src={course.thumbnail} 
-                      alt={course.title} 
-                      className="w-full h-48 object-cover rounded-lg mb-4" 
-                    />
+                <div className="bg-white rounded-lg shadow-sm p-5 sticky top-20 border border-blue-100">
+                  {(course?.thumbnail || course?.thumbnail_url) && (
+                    <div className="mb-4 overflow-hidden rounded-lg border border-blue-50">
+                      <img 
+                        src={course.thumbnail || course.thumbnail_url} 
+                        alt={course.title} 
+                        className="w-full h-44 object-cover" 
+                      />
+                    </div>
                   )}
                   
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-2xl font-bold">${course?.price || 0}</h3>
-                    <div className="flex items-center">
-                      <span className="material-icons text-yellow-500 mr-1">star</span>
-                      <span>{course?.rating || 0} ({course?.reviews_count || 0} reviews)</span>
+                    <h3 className="text-xl font-bold text-gray-800">${course?.price || 0}</h3>
+                    <div className="flex items-center px-2 py-1 bg-yellow-50 rounded border border-yellow-100">
+                      <span className="material-icons text-yellow-500 text-xs mr-1">star</span>
+                      <span className="text-xs font-medium">{course?.rating || 0} ({course?.reviews_count || 0})</span>
                     </div>
                   </div>
                   
-                  <div className="space-y-4">
-                    {isEnrolled && (
-                      <Alert status="success" className="mb-4">
-                        <AlertIcon />
-                        <div>
-                          <AlertTitle>You're enrolled!</AlertTitle>
-                          <AlertDescription>You have access to all course content.</AlertDescription>
-                        </div>
-                      </Alert>
+                  <div className="space-y-3">
+                    {isEnrolled ? (
+                      <div className="flex flex-col gap-2">
+                        <a
+                          href={`/courses/${courseId}/learn`}
+                          className="px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold flex items-center justify-center text-base shadow-sm hover:bg-blue-600 transition-colors"
+                        >
+                          <span className="material-icons mr-2 text-sm">play_circle</span>
+                          Continue Learning
+                        </a>
+                        <Button 
+                          colorScheme="red" 
+                          onClick={handleUnenroll}
+                          size="md"
+                          variant="outline"
+                          isLoading={cancelLoading}
+                        >
+                          Cancel Enrollment
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button 
+                        onClick={handleEnrollClick}
+                        isLoading={enrolling}
+                        colorScheme="blue"
+                        size="lg"
+                        width="100%"
+                      >
+                        Enroll Now for ${course?.price || 0}
+                      </Button>
                     )}
                     
-                    {renderEnrollmentButton()}
-                    
-                    <div className="text-sm text-gray-500 mt-2">
-                      {isEnrolled ? 'You have full access to this course' : 'Full access to all course materials after enrollment'}
+                    <div className="text-xs text-gray-500 text-center italic">
+                      {isEnrolled ? 'You have full access to this course' : 'Lifetime access to all course materials'}
                     </div>
-                    
-                    <div className="border-t pt-4 mt-4">
-                      <h4 className="font-semibold mb-2">This course includes:</h4>
+
+                    <div className="border-t border-blue-100 pt-3 mt-3">
+                      <h4 className="font-medium text-sm mb-2 text-gray-700">This course includes:</h4>
                       <ul className="space-y-2">
-                        <li className="flex items-center">
-                          <span className="material-icons text-green-500 mr-2">check</span>
+                        <li className="flex items-center text-xs bg-blue-50 p-2 rounded">
+                          <span className="material-icons text-blue-500 mr-2 text-sm">check_circle</span>
                           <span>{course?.modules?.length || 0} modules</span>
                         </li>
-                        <li className="flex items-center">
-                          <span className="material-icons text-green-500 mr-2">check</span>
-                          <span>24/7 access</span>
+                        <li className="flex items-center text-xs bg-blue-50 p-2 rounded">
+                          <span className="material-icons text-blue-500 mr-2 text-sm">check_circle</span>
+                          <span>Lifetime access</span>
                         </li>
-                        <li className="flex items-center">
-                          <span className="material-icons text-green-500 mr-2">check</span>
+                        <li className="flex items-center text-xs bg-blue-50 p-2 rounded">
+                          <span className="material-icons text-blue-500 mr-2 text-sm">check_circle</span>
                           <span>Certificate of completion</span>
                         </li>
                       </ul>
                     </div>
-                    
-                    {isEnrolled && (
-                      <div className="border-t pt-4 mt-4">
-                        <div className="text-sm text-gray-700 mb-2">
-                          Having trouble accessing the course?
-                        </div>
-                        <a 
-                          href={`/courses/${courseId}/learn`}
-                          className="inline-block w-full py-2 px-4 bg-gray-200 text-gray-800 text-center rounded font-medium"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Try opening in new tab
-                        </a>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>

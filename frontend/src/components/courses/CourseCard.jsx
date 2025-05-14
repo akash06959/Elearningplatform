@@ -20,6 +20,7 @@ const CourseCard = ({ course }) => {
     const {
         id,
         title,
+        thumbnail,
         thumbnail_url,
         instructor,
         rating,
@@ -30,10 +31,14 @@ const CourseCard = ({ course }) => {
     } = course;
 
     const defaultImageUrl = 'https://placehold.co/600x400?text=Course+Image';
+    // Use either thumbnail or thumbnail_url, whichever is available
+    const imageUrl = thumbnail || thumbnail_url || defaultImageUrl;
 
     console.log('Course data:', {
         title,
-        thumbnail: thumbnail_url,
+        thumbnail,
+        thumbnail_url,
+        imageUrl,
         instructor
     });
 
@@ -50,7 +55,7 @@ const CourseCard = ({ course }) => {
         >
             <Box position="relative" height="200px">
                 <Image
-                    src={thumbnail_url || defaultImageUrl}
+                    src={imageUrl}
                     alt={title}
                     width="100%"
                     height="100%"

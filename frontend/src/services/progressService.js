@@ -56,7 +56,7 @@ export const progressService = {
   getCourseProgress: async (courseId) => {
     try {
       // Try to get progress from API first
-      const response = await api.get(`/courses/${courseId}/progress/`);
+      const response = await api.get(`/api/courses/${courseId}/progress/`);
       console.log('API progress response:', response);
       
       if (response && (response.sections || response.progress)) {
@@ -99,7 +99,7 @@ export const progressService = {
   markSectionComplete: async (courseId, sectionId) => {
     try {
       // Try API first
-      const response = await api.post(`/courses/${courseId}/sections/${sectionId}/complete/`);
+      const response = await api.post(`/api/courses/${courseId}/sections/${sectionId}/complete/`);
       console.log('API markComplete response:', response);
       
       if (response && response.success !== false) {
@@ -143,7 +143,7 @@ export const progressService = {
   submitQuizResults: async (courseId, quizId, results) => {
     try {
       // Try API first
-      const response = await api.post(`/courses/${courseId}/quizzes/${quizId}/submit/`, results);
+      const response = await api.post(`/api/courses/${courseId}/quizzes/${quizId}/submit/`, results);
       console.log('API quiz submission response:', response);
       
       if (response && response.success !== false) {
@@ -221,7 +221,7 @@ export const progressService = {
   saveNotes: async (courseId, sectionId, notes) => {
     try {
       // Try API first
-      const response = await api.post(`/courses/${courseId}/sections/${sectionId}/notes/`, { notes });
+      const response = await api.post(`/api/courses/${courseId}/sections/${sectionId}/notes/`, { notes });
       console.log('API save notes response:', response);
       
       if (response && response.success !== false) {

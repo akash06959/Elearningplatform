@@ -275,7 +275,6 @@ def get_course_progress(request, course_id):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def get_user_enrollments(request):
     """Get all courses a user is enrolled in"""
     try:
@@ -311,6 +310,7 @@ class EnrolledCoursesListView(LoginRequiredMixin, ListView):
                     'title': course.title,
                     'description': course.description,
                     'thumbnail': course.thumbnail.url if course.thumbnail else None,
+                    'thumbnail_url': course.thumbnail.url if course.thumbnail else None,
                     'cover_image': course.cover_image.url if course.cover_image else None,
                     'instructor': course.instructor.username,
                     'category': course.category.name,
@@ -419,7 +419,7 @@ def check_enrollment_status(request, course_id):
             'error': str(e)
         }, status=status.HTTP_400_BAD_REQUEST)
 
-class EnrollmentListView(LoginRequiredMixin, ListView):
+class EnrollmentListView(ListView):
     """View to list all enrollments for the current user"""
     model = Enrollment
     template_name = 'enrollments/enrollment_list.html'

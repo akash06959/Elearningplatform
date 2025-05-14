@@ -38,16 +38,26 @@ const handleGoogleResponse = async (response) => {
 
     const data = await res.json();
     
-    // Store authentication data
-    localStorage.setItem('access_token', data.access);
-    localStorage.setItem('refresh_token', data.refresh);
-    localStorage.setItem('user_type', data.user_type);
-    localStorage.setItem('username', data.username);
+    // Store tokens
+    const tokens = {
+      access: data.access,
+      refresh: data.refresh
+    };
+    localStorage.setItem('authTokens', JSON.stringify(tokens));
+    
+    // Store user info
+    const userInfo = {
+      username: data.username,
+      user_type: data.user_type?.toLowerCase(),
+      role: data.user_type?.toLowerCase()
+    };
+    localStorage.setItem('user', JSON.stringify(userInfo));
+    localStorage.setItem('user_type', userInfo.user_type);
 
     // Redirect based on user type
-    window.location.href = data.user_type === 'instructor' 
-      ? '/inst_dashboard'
-      : '/std_dashboard';
+    window.location.href = userInfo.user_type === 'instructor' 
+      ? '/instructor/dashboard'
+      : '/student/dashboard';
   } catch (error) {
     console.error('Google authentication error:', error);
     alert('Failed to authenticate with Google. Please try again.');

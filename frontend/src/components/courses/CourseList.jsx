@@ -4,20 +4,15 @@ import { courseAPI } from '../../services/api';
 import {
   Box,
   Container,
-  Input,
-  InputGroup,
-  InputLeftElement,
   Select,
   SimpleGrid,
   Heading,
   Text,
   VStack,
-  HStack,
   Spinner,
   useColorModeValue,
   Flex,
 } from '@chakra-ui/react';
-import { SearchIcon } from '@chakra-ui/icons';
 import CourseCard from './CourseCard';
 import Navbar from '../shared/Navbar';
 import Footer from '../shared/Footer';
@@ -28,12 +23,10 @@ const CourseList = () => {
   const [filteredCourses, setFilteredCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
   const [categories, setCategories] = useState([]);
 
   // Move all useColorModeValue hooks to the top level
-  const inputBg = useColorModeValue('white', 'gray.700');
   const selectBg = useColorModeValue('white', 'gray.700');
   const pageBg = useColorModeValue('gray.50', 'gray.800');
 
@@ -49,7 +42,7 @@ const CourseList = () => {
         setCategories(uniqueCategories);
 
         // Apply initial filters if any
-        filterCourses(allCourses, searchParams.get('search'), searchParams.get('category'));
+        filterCourses(allCourses, searchParams.get('category'));
       } catch (err) {
         console.error('Error fetching courses:', err);
         setError(err.message);
@@ -61,18 +54,8 @@ const CourseList = () => {
     fetchCourses();
   }, [searchParams]);
 
-  const filterCourses = (coursesToFilter, search, category) => {
+  const filterCourses = (coursesToFilter, category) => {
     let filtered = [...coursesToFilter];
-
-    // Apply search filter
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter(course =>
-        course.title?.toLowerCase().includes(searchLower) ||
-        course.description?.toLowerCase().includes(searchLower) ||
-        course.instructor?.name?.toLowerCase().includes(searchLower)
-      );
-    }
 
     // Apply category filter
     if (category) {
@@ -80,18 +63,6 @@ const CourseList = () => {
     }
 
     setFilteredCourses(filtered);
-  };
-
-  const handleSearch = (value) => {
-    setSearchQuery(value);
-    const newParams = new URLSearchParams(searchParams);
-    if (value) {
-      newParams.set('search', value);
-    } else {
-      newParams.delete('search');
-    }
-    setSearchParams(newParams);
-    filterCourses(courses, value, selectedCategory);
   };
 
   const handleCategoryChange = (value) => {
@@ -103,7 +74,7 @@ const CourseList = () => {
       newParams.delete('category');
     }
     setSearchParams(newParams);
-    filterCourses(courses, searchQuery, value);
+    filterCourses(courses, value);
   };
 
   if (loading) {
@@ -140,35 +111,22 @@ const CourseList = () => {
               Available Courses
             </Heading>
 
-            {/* Search and Filter Section */}
-            <HStack spacing={4}>
-              <InputGroup>
-                <InputLeftElement pointerEvents="none">
-                  <SearchIcon color="gray.400" />
-                </InputLeftElement>
-                <Input
-                  placeholder="Search courses..."
-                  value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  bg={inputBg}
-                />
-              </InputGroup>
-
-              <Select
-                placeholder="All Categories"
-                value={selectedCategory}
-                onChange={(e) => handleCategoryChange(e.target.value)}
-                bg={selectBg}
-                maxW="200px"
-              >
-                <option value="">All Categories</option>
-                {categories.map(category => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </Select>
-            </HStack>
+            {/* Category Filter */}
+            <Select
+              placeholder="All Categories"
+              value={selectedCategory}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              bg={selectBg}
+              maxW="200px"
+              alignSelf="center"
+            >
+              <option value="">All Categories</option>
+              {categories.map(category => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </Select>
 
             {/* Results Section */}
             {filteredCourses.length > 0 ? (

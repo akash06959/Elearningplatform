@@ -51,33 +51,33 @@ function EditCourse() {
           // Fetch course details using courseAPI
           const courseDetails = await courseAPI.getCourseById(courseId);
           console.log('Course details fetched successfully:', courseDetails);
-          
-          // Fetch categories
-          const categoriesResponse = await fetch('http://localhost:8000/api/courses/categories/', {
-            headers: {
+        
+        // Fetch categories
+        const categoriesResponse = await fetch('http://localhost:8000/api/courses/categories/', {
+          headers: {
               'Authorization': `Bearer ${authTokens.access}`,
-              'Accept': 'application/json',
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (!categoriesResponse.ok) {
-            throw new Error(`Failed to fetch categories: ${categoriesResponse.status}`);
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
           }
-  
-          const categoriesData = await categoriesResponse.json();
-          setCategories(categoriesData);
+        });
+
+        if (!categoriesResponse.ok) {
+            throw new Error(`Failed to fetch categories: ${categoriesResponse.status}`);
+        }
+
+        const categoriesData = await categoriesResponse.json();
+        setCategories(categoriesData);
           console.log('Categories fetched successfully:', categoriesData);
-  
-          // Set course data
-          setCourseData({
-            title: courseDetails.title || '',
-            description: courseDetails.description || '',
-            price: courseDetails.price || '',
-            category: courseDetails.category?.id || '',
-            level: courseDetails.difficulty_level || 'beginner',
-            duration: courseDetails.duration_in_weeks || '',
-            thumbnail: null,
+
+        // Set course data
+        setCourseData({
+          title: courseDetails.title || '',
+          description: courseDetails.description || '',
+          price: courseDetails.price || '',
+          category: courseDetails.category?.id || '',
+          level: courseDetails.difficulty_level || 'beginner',
+          duration: courseDetails.duration_in_weeks || '',
+          thumbnail: null,
             thumbnailPreview: courseDetails.thumbnail_url || courseDetails.thumbnail || null
           });
           
@@ -214,8 +214,8 @@ function EditCourse() {
             }
             setQuizzes(initialQuizzes);
           }
-  
-          setError('');
+
+        setError('');
         } catch (error) {
           console.error('Error fetching course data:', error);
           setError(`Failed to load course data: ${error.message}`);
@@ -754,13 +754,13 @@ function EditCourse() {
             
             fetchResponse = await fetch(url, {
               method: method,
-              headers: {
+        headers: {
                 'Authorization': `Bearer ${authTokens.access}`
                 // Don't set Content-Type as FormData will set its own boundary
-              },
-              body: formData
-            });
-            
+        },
+        body: formData
+      });
+
             console.log(`${method} to ${url} status:`, fetchResponse.status);
             
             if (fetchResponse.ok) {
@@ -853,7 +853,7 @@ function EditCourse() {
                 responseData = { success: true };
                 break;
               }
-            } else {
+        } else {
               const errorText = await fetchResponse.text();
               console.error(`Failed with status ${fetchResponse.status}:`, errorText);
               setLastError(new Error(`${method} to ${url} failed: ${fetchResponse.status} ${fetchResponse.statusText}`));
@@ -877,7 +877,7 @@ function EditCourse() {
             
             // Redirect to instructor courses page after a delay
             setTimeout(() => {
-              navigate('/instructor/courses');
+      navigate('/instructor/courses');
             }, 2000);
           } else {
             // We got an OK response but can't verify if content was preserved
@@ -1204,7 +1204,7 @@ function EditCourse() {
       <main style={styles.main}>
         <div style={styles.card}>
           <div style={styles.header}>
-            <h1 style={styles.title}>Edit Course</h1>
+          <h1 style={styles.title}>Edit Course</h1>
             <p style={styles.subtitle}>Update your course details</p>
           </div>
           
@@ -1239,7 +1239,7 @@ function EditCourse() {
               View Course
             </a>
           </div>
-          
+
           {error && (
             <div style={{
               backgroundColor: '#FFEBEE', 
@@ -1252,7 +1252,7 @@ function EditCourse() {
               {error}
             </div>
           )}
-          
+
           {success && (
             <div style={{
               backgroundColor: '#E8F5E9', 
@@ -1307,113 +1307,113 @@ function EditCourse() {
                   <div style={styles.tabContent}>
                     <div style={styles.inputGroup}>
                       <label style={styles.inputLabel} htmlFor="title">Course Title</label>
-                      <input
+              <input
                         id="title"
                         style={styles.input}
-                        type="text"
-                        name="title"
+                type="text"
+                name="title"
                         placeholder="e.g. Introduction to React"
-                        value={courseData.title}
-                        onChange={handleInputChange}
-                      />
-                    </div>
+                value={courseData.title}
+                onChange={handleInputChange}
+              />
+            </div>
 
                     <div style={styles.inputGroup}>
                       <label style={styles.inputLabel} htmlFor="description">Course Description</label>
-                      <textarea
+              <textarea
                         id="description"
                         style={styles.textarea}
-                        name="description"
+                name="description"
                         placeholder="Describe your course..."
-                        value={courseData.description}
-                        onChange={handleInputChange}
+                value={courseData.description}
+                onChange={handleInputChange}
                       ></textarea>
-                    </div>
+            </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                       <div style={styles.inputGroup}>
                         <label style={styles.inputLabel} htmlFor="price">Price ($)</label>
-                        <input
+              <input
                           id="price"
                           style={styles.input}
-                          type="number"
-                          name="price"
-                          min="0"
-                          step="0.01"
+                type="number"
+                name="price"
+                min="0"
+                step="0.01"
                           placeholder="29.99"
                           value={courseData.price}
                           onChange={handleInputChange}
-                        />
-                      </div>
+              />
+            </div>
 
                       <div style={styles.inputGroup}>
                         <label style={styles.inputLabel} htmlFor="category">Category</label>
-                        <select
+              <select
                           id="category"
                           style={styles.select}
-                          name="category"
-                          value={courseData.category}
-                          onChange={handleInputChange}
-                        >
-                          <option value="">Select a category</option>
-                          {categories.map(category => (
+                name="category"
+                value={courseData.category}
+                onChange={handleInputChange}
+              >
+                <option value="">Select a category</option>
+                {categories.map(category => (
                             <option key={category.id} value={category.id}>{category.name}</option>
-                          ))}
-                        </select>
+                ))}
+              </select>
                       </div>
-                    </div>
+            </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                       <div style={styles.inputGroup}>
                         <label style={styles.inputLabel} htmlFor="duration">Duration (in weeks)</label>
-                        <input
+              <input
                           id="duration"
                           style={styles.input}
-                          type="number"
-                          name="duration"
+                type="number"
+                name="duration"
                           min="1"
                           placeholder="4"
-                          value={courseData.duration}
-                          onChange={handleInputChange}
-                        />
-                      </div>
+                value={courseData.duration}
+                onChange={handleInputChange}
+              />
+            </div>
 
                       <div style={styles.inputGroup}>
                         <label style={styles.inputLabel} htmlFor="level">Difficulty Level</label>
-                        <select
+              <select
                           id="level"
                           style={styles.select}
-                          name="level"
-                          value={courseData.level}
-                          onChange={handleInputChange}
-                        >
-                          <option value="beginner">Beginner</option>
-                          <option value="intermediate">Intermediate</option>
-                          <option value="advanced">Advanced</option>
-                        </select>
+                name="level"
+                value={courseData.level}
+                onChange={handleInputChange}
+              >
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
                       </div>
-                    </div>
+            </div>
 
                     <div style={styles.inputGroup}>
                       <label style={styles.inputLabel} htmlFor="thumbnail">Course Thumbnail</label>
-                      <input
+              <input
                         id="thumbnail"
-                        type="file"
-                        name="thumbnail"
-                        accept="image/*"
+                type="file"
+                name="thumbnail"
+                accept="image/*"
                         onChange={handleFileChange}
-                      />
-                      {courseData.thumbnailPreview && (
+              />
+              {courseData.thumbnailPreview && (
                         <div style={{ marginTop: '1rem' }}>
-                          <img
-                            src={courseData.thumbnailPreview}
+                <img
+                  src={courseData.thumbnailPreview}
                             alt="Thumbnail preview"
                             style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '0.375rem' }}
-                          />
+                />
                         </div>
-                      )}
-                    </div>
-                    
+              )}
+            </div>
+
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem' }}>
                       <button
                         type="button"
@@ -1422,10 +1422,10 @@ function EditCourse() {
                       >
                         Next: Edit Modules
                       </button>
-                      <button
-                        type="submit"
+            <button
+              type="submit"
                         style={{...styles.button, backgroundColor: '#4CAF50', color: 'white'}}
-                        disabled={loading}
+              disabled={loading}
                       >
                         {loading ? 'Updating Course...' : 'Update Course'}
                       </button>
@@ -1534,7 +1534,7 @@ function EditCourse() {
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                   </svg>
-                                </button>
+            </button>
                               </div>
                               
                               <div className="mb-4">
@@ -1908,10 +1908,10 @@ function EditCourse() {
                     </div>
                   </div>
                 )}
-              </form>
-            </div>
-          )}
+          </form>
         </div>
+          )}
+      </div>
       </main>
     </div>
   );

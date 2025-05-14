@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect, useRef } from 'react';
 import {
     Box,
     Flex,
@@ -20,15 +20,33 @@ import {
     MenuButton,
     MenuList,
     MenuItem,
+    Input,
+    InputGroup,
+    InputLeftElement,
+    InputRightElement,
+    Badge,
+    Tooltip,
+    Progress,
+    VStack,
+    useColorMode,
 } from '@chakra-ui/react';
 import {
     HamburgerIcon,
     CloseIcon,
     ChevronDownIcon,
     ChevronRightIcon,
+    SearchIcon,
+    BellIcon,
+    BookIcon,
+    GraduationCapIcon,
+    ViewIcon,
+    MoonIcon,
+    SunIcon,
 } from '@chakra-ui/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../contexts/AuthContext';
+import { FaBook, FaGraduationCap, FaChalkboardTeacher, FaSearch, FaBell } from 'react-icons/fa';
+import { courseAPI } from '../../services/api';
 
 export default function Navbar() {
     const { isOpen, onToggle } = useDisclosure();
@@ -36,22 +54,60 @@ export default function Navbar() {
     const navigate = useNavigate();
     const userType = user?.role || localStorage.getItem('userType');
     const dashboardPath = userType === 'instructor' ? '/inst_dashboard' : '/std_dashboard';
+    const [searchQuery, setSearchQuery] = useState('');
+    const [suggestions, setSuggestions] = useState([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const searchRef = useRef(null);
+
+    const suggestionBg = useColorModeValue('white', 'gray.800');
+    const suggestionHoverBg = useColorModeValue('gray.100', 'gray.700');
 
     const handleLogoClick = (e) => {
         e.preventDefault();
-        if (user) {
-            navigate(dashboardPath);
+        navigate('/');
+    };
+
+    const handleSearch = async (value) => {
+        setSearchQuery(value);
+        if (value.length > 0) {
+            try {
+                const response = await courseAPI.getCourses(`?search=${value}`);
+                setSuggestions(response);
+                setShowSuggestions(true);
+            } catch (error) {
+                console.error('Error fetching suggestions:', error);
+                setSuggestions([]);
+            }
         } else {
-            navigate('/');
+            setSuggestions([]);
+            setShowSuggestions(false);
         }
     };
 
+    const handleSuggestionClick = (courseId) => {
+        setShowSuggestions(false);
+        navigate(`/courses/${courseId}`);
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (searchRef.current && !searchRef.current.contains(event.target)) {
+                setShowSuggestions(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
     return (
-        <Box>
+        <Box bg={useColorModeValue('white', 'gray.900')} px={4} boxShadow="sm">
             <Flex
                 bg="blue.600"
                 color="white"
-                minH={'60px'}
+                minH={'70px'}
                 py={{ base: 2 }}
                 px={{ base: 4 }}
                 borderBottom={1}
@@ -78,7 +134,7 @@ export default function Navbar() {
                         aria-label={'Toggle Navigation'}
                     />
                 </Flex>
-                <Flex flex={{ base: 1 }} justify={{ base: 'center', md: 'start' }}>
+                <Flex flex={{ base: 1 }} justify={{ base: 'center', md: 'start' }} align="center">
                     <Text
                         textAlign={useBreakpointValue({ base: 'center', md: 'left' })}
                         fontFamily={'heading'}
@@ -87,47 +143,167 @@ export default function Navbar() {
                         fontSize="xl"
                         cursor="pointer"
                         onClick={handleLogoClick}
+                        _hover={{ color: 'blue.100' }}
+                        mr={4}
                     >
                         ELearning Platform
                     </Text>
 
-                    <Flex display={{ base: 'none', md: 'flex' }} ml={10}>
-                        <Stack direction={'row'} spacing={4}>
+                    <Flex display={{ base: 'none', md: 'flex' }} ml={10} align="center" flex={1}>
+                        <Stack direction={'row'} spacing={4} flex={1} justify="space-between">
                             {user && (
                                 <>
-                                    <ChakraLink
-                                        as={Link}
-                                        to="/courses"
-                                        p={2}
-                                        fontSize={'sm'}
-                                        fontWeight={500}
-                                        color={'white'}
-                                        _hover={{ color: 'blue.100' }}
-                                    >
-                                        Courses
-                                    </ChakraLink>
-                                    <ChakraLink
-                                        as={Link}
-                                        to="/enrollments"
-                                        p={2}
-                                        fontSize={'sm'}
-                                        fontWeight={500}
-                                        color={'white'}
-                                        _hover={{ color: 'blue.100' }}
-                                    >
-                                        My Learning
-                                    </ChakraLink>
-                                    <ChakraLink
-                                        as={Link}
-                                        to="/instructors"
-                                        p={2}
-                                        fontSize={'sm'}
-                                        fontWeight={500}
-                                        color={'white'}
-                                        _hover={{ color: 'blue.100' }}
-                                    >
-                                        Instructors
-                                    </ChakraLink>
+                                    <Flex gap={4}>
+                                        <Popover trigger={'hover'} placement={'bottom-start'}>
+                                            <PopoverTrigger>
+                                                <ChakraLink
+                                                    as={Link}
+                                                    to="/courses"
+                                                    p={2}
+                                                    fontSize={'sm'}
+                                                    fontWeight={500}
+                                                    color={'white'}
+                                                    _hover={{ color: 'blue.100' }}
+                                                    display="flex"
+                                                    alignItems="center"
+                                                    gap={2}
+                                                >
+                                                    <Icon as={FaBook} />
+                                                    Courses
+                                                    <Icon as={ChevronDownIcon} ml={1} />
+                                                </ChakraLink>
+                                            </PopoverTrigger>
+                                            <PopoverContent
+                                                border={0}
+                                                boxShadow={'xl'}
+                                                bg={'white'}
+                                                p={4}
+                                                rounded={'xl'}
+                                                minW={'sm'}
+                                            >
+                                                <Stack>
+                                                    <ChakraLink
+                                                        as={Link}
+                                                        to="/courses?category=Computer Science"
+                                                        p={2}
+                                                        display="block"
+                                                        rounded="md"
+                                                        color="gray.800"
+                                                        _hover={{
+                                                            bg: 'blue.50',
+                                                            color: 'blue.600',
+                                                        }}
+                                                    >
+                                                        Computer Science
+                                                    </ChakraLink>
+                                                    <ChakraLink
+                                                        as={Link}
+                                                        to="/courses?category=Business"
+                                                        p={2}
+                                                        display="block"
+                                                        rounded="md"
+                                                        color="gray.800"
+                                                        _hover={{
+                                                            bg: 'blue.50',
+                                                            color: 'blue.600',
+                                                        }}
+                                                    >
+                                                        Business
+                                                    </ChakraLink>
+                                                    <ChakraLink
+                                                        as={Link}
+                                                        to="/courses?category=Design"
+                                                        p={2}
+                                                        display="block"
+                                                        rounded="md"
+                                                        color="gray.800"
+                                                        _hover={{
+                                                            bg: 'blue.50',
+                                                            color: 'blue.600',
+                                                        }}
+                                                    >
+                                                        Design
+                                                    </ChakraLink>
+                                                    <ChakraLink
+                                                        as={Link}
+                                                        to="/courses?category=Marketing"
+                                                        p={2}
+                                                        display="block"
+                                                        rounded="md"
+                                                        color="gray.800"
+                                                        _hover={{
+                                                            bg: 'blue.50',
+                                                            color: 'blue.600',
+                                                        }}
+                                                    >
+                                                        Marketing
+                                                    </ChakraLink>
+                                                </Stack>
+                                            </PopoverContent>
+                                        </Popover>
+
+                                        <ChakraLink
+                                            as={Link}
+                                            to="/enrollments"
+                                            p={2}
+                                            fontSize={'sm'}
+                                            fontWeight={500}
+                                            color={'white'}
+                                            _hover={{ color: 'blue.100' }}
+                                            display="flex"
+                                            alignItems="center"
+                                            gap={2}
+                                        >
+                                            <Icon as={FaGraduationCap} />
+                                            My Enrollments
+                                        </ChakraLink>
+
+                                        <ChakraLink
+                                            as={Link}
+                                            to="/instructors"
+                                            p={2}
+                                            fontSize={'sm'}
+                                            fontWeight={500}
+                                            color={'white'}
+                                            _hover={{ color: 'blue.100' }}
+                                            display="flex"
+                                            alignItems="center"
+                                            gap={2}
+                                        >
+                                            <Icon as={FaChalkboardTeacher} />
+                                            Instructors
+                                        </ChakraLink>
+                                    </Flex>
+
+                                    <Box flex={1} display="flex" justifyContent="center" maxW="600px">
+                                        <form onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }} style={{ width: '100%' }}>
+                                            <InputGroup size="md">
+                                                <InputLeftElement pointerEvents="none" h="100%" pl={2}>
+                                                    <Icon as={FaSearch} color="gray.400" boxSize={4} />
+                                                </InputLeftElement>
+                                                <Input
+                                                    placeholder="Search for courses..."
+                                                    value={searchQuery}
+                                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                                    onFocus={() => setShowSuggestions(true)}
+                                                    bg="white"
+                                                    color="gray.700"
+                                                    borderRadius="full"
+                                                    py={2}
+                                                    pl={10}
+                                                    fontSize="md"
+                                                    _focus={{ 
+                                                        borderColor: 'blue.300',
+                                                        boxShadow: '0 0 0 1px blue.300'
+                                                    }}
+                                                    _placeholder={{
+                                                        color: 'gray.500'
+                                                    }}
+                                                />
+                                            </InputGroup>
+                                        </form>
+                                    </Box>
+                                    <Box width="200px" /> {/* Spacer to balance the navigation items */}
                                 </>
                             )}
                         </Stack>
@@ -141,6 +317,41 @@ export default function Navbar() {
                     spacing={6}
                     align="center"
                 >
+                    {user && (
+                        <>
+                            <Box position="relative" display="flex" alignItems="center" justifyContent="center">
+                                <IconButton
+                                    as={Link}
+                                    to="/notifications"
+                                    aria-label="Notifications"
+                                    icon={<Icon as={FaBell} boxSize={5} />}
+                                    variant="ghost"
+                                    color="white"
+                                    _hover={{ bg: 'blue.500' }}
+                                    size="md"
+                                    isRound
+                                />
+                                <Badge
+                                    colorScheme="red"
+                                    position="absolute"
+                                    top="0"
+                                    right="0"
+                                    borderRadius="full"
+                                    fontSize="xs"
+                                    minW="20px"
+                                    h="20px"
+                                    display="flex"
+                                    alignItems="center"
+                                    justifyContent="center"
+                                    fontWeight="bold"
+                                    transform="translate(25%, -25%)"
+                                >
+                                    3
+                                </Badge>
+                            </Box>
+                        </>
+                    )}
+
                     {user ? (
                         <Menu>
                             <MenuButton
@@ -151,15 +362,22 @@ export default function Navbar() {
                                 minW={0}
                             >
                                 <Avatar
-                                    size={'sm'}
+                                    size={'md'}
                                     name={user.username}
+                                    src={user.profile_picture || null}
                                     bg="blue.300"
                                 />
                             </MenuButton>
                             <MenuList bg="white" color="gray.800">
-                                <MenuItem as={Link} to={dashboardPath}>Dashboard</MenuItem>
-                                <MenuItem as={Link} to="/profile">Profile</MenuItem>
-                                <MenuItem onClick={logoutUser}>Sign Out</MenuItem>
+                                <MenuItem as={Link} to={dashboardPath} icon={<Icon as={FaGraduationCap} />}>
+                                    Dashboard
+                                </MenuItem>
+                                <MenuItem as={Link} to="/profile" icon={<Icon as={ViewIcon} />}>
+                                    Profile
+                                </MenuItem>
+                                <MenuItem onClick={logoutUser} icon={<Icon as={CloseIcon} />}>
+                                    Sign Out
+                                </MenuItem>
                             </MenuList>
                         </Menu>
                     ) : (
@@ -211,7 +429,11 @@ export default function Navbar() {
                                     fontWeight={500}
                                     color={'white'}
                                     _hover={{ color: 'blue.100' }}
+                                    display="flex"
+                                    alignItems="center"
+                                    gap={2}
                                 >
+                                    <Icon as={FaBook} />
                                     Courses
                                 </ChakraLink>
                                 <ChakraLink
@@ -222,8 +444,12 @@ export default function Navbar() {
                                     fontWeight={500}
                                     color={'white'}
                                     _hover={{ color: 'blue.100' }}
+                                    display="flex"
+                                    alignItems="center"
+                                    gap={2}
                                 >
-                                    My Learning
+                                    <Icon as={FaGraduationCap} />
+                                    My Enrollments
                                 </ChakraLink>
                                 <ChakraLink
                                     as={Link}
@@ -233,7 +459,11 @@ export default function Navbar() {
                                     fontWeight={500}
                                     color={'white'}
                                     _hover={{ color: 'blue.100' }}
+                                    display="flex"
+                                    alignItems="center"
+                                    gap={2}
                                 >
+                                    <Icon as={FaChalkboardTeacher} />
                                     Instructors
                                 </ChakraLink>
                             </>
@@ -243,7 +473,40 @@ export default function Navbar() {
             </Collapse>
             
             {/* Add spacing to prevent content from hiding under fixed navbar */}
-            <Box height="60px" />
+            <Box height="70px" />
+
+            {showSuggestions && suggestions.length > 0 && (
+                <Box
+                    position="absolute"
+                    top="100%"
+                    left={0}
+                    right={0}
+                    mt={1}
+                    bg={suggestionBg}
+                    boxShadow="lg"
+                    borderRadius="md"
+                    zIndex={1000}
+                    maxH="400px"
+                    overflowY="auto"
+                >
+                    {suggestions.map((course) => (
+                        <Box
+                            key={course.id}
+                            p={2}
+                            cursor="pointer"
+                            _hover={{ bg: suggestionHoverBg }}
+                            onClick={() => handleSuggestionClick(course.id)}
+                        >
+                            <VStack align="start" spacing={1}>
+                                <Text fontWeight="medium">{course.title}</Text>
+                                <Text fontSize="sm" color="gray.500">
+                                    {course.instructor} • {course.category}
+                                </Text>
+                            </VStack>
+                        </Box>
+                    ))}
+                </Box>
+            )}
         </Box>
     );
 }

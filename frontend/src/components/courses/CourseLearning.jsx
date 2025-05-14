@@ -172,7 +172,7 @@ function CourseLearning() {
         setLoading(false);
       }
     };
-    
+
     fetchCourseData();
   }, [courseId, navigate]);
 
@@ -276,7 +276,7 @@ function CourseLearning() {
               setQuizAnswers({});
               setQuizResult(null);
               setShowQuizModal(true);
-            } else {
+        } else {
               toast.success("You've already completed the quiz for this module!");
             }
           } catch (quizError) {
@@ -435,21 +435,21 @@ function CourseLearning() {
       
       console.log("Final video ID for embedding:", videoId);
       // Return iframe with YouTube embed in a larger, more prominent container
-      return (
+        return (
         <div className="bg-black rounded-lg shadow-lg overflow-hidden">
           <div className="relative" style={{ paddingTop: '56.25%', /* 16:9 aspect ratio */ }}>
-            <iframe
+              <iframe 
               src={`https://www.youtube.com/embed/${videoId}`}
               title="YouTube video player"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
               className="absolute inset-0 w-full h-full"
               style={{ 
                 minHeight: '480px', 
                 width: '100%',
                 border: 'none'
               }}
-            ></iframe>
+              ></iframe>
           </div>
           <div className="bg-gray-900 text-white px-4 py-3 flex justify-between items-center">
             <div className="flex items-center">
@@ -508,8 +508,8 @@ function CourseLearning() {
           </svg>
           <h3 className="text-lg font-medium mb-2">No PDF Document Available</h3>
           <p className="text-gray-600">This section doesn't have a PDF document attached.</p>
-        </div>
-      );
+          </div>
+        );
     }
     
     console.log("Rendering PDF with:", {url, fromDb, moduleId});
@@ -554,7 +554,7 @@ function CourseLearning() {
       }
       
       // Return enhanced PDF viewer
-      return (
+        return (
         <div className="bg-gray-800 rounded-lg overflow-hidden shadow-lg">
           {/* Header bar */}
           <div className="bg-gray-900 text-white p-3 flex items-center justify-between">
@@ -607,13 +607,13 @@ function CourseLearning() {
               {fromDb ? 'Database PDF' : 'File storage PDF'}
             </span>
           </div>
-        </div>
-      );
+          </div>
+        );
     } catch (error) {
       console.error('Error rendering PDF:', error);
       
       // Enhanced fallback display with more helpful information
-      return (
+        return (
         <div className="p-6 bg-gray-50 rounded-lg border border-gray-200 text-center shadow">
           <div className="mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-red-600 mb-3" viewBox="0 0 24 24" fill="currentColor">
@@ -638,8 +638,8 @@ function CourseLearning() {
           >
             Download PDF
           </a>
-        </div>
-      );
+          </div>
+        );
     }
   };
 
@@ -689,7 +689,7 @@ function CourseLearning() {
 
   const renderQuizModal = () => {
     if (!showQuizModal || !currentQuiz) return null;
-    
+
     return (
       <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -803,7 +803,7 @@ function CourseLearning() {
                   disabled={Object.keys(quizAnswers).length !== currentQuiz.questions.length}
                 >
                   Submit Quiz
-                </button>
+          </button>
               </div>
             </>
           )}
@@ -1128,7 +1128,7 @@ function CourseLearning() {
           </div>
         )}
       </div>
-      
+
       {/* Quiz Modal */}
       {renderQuizModal()}
     </div>

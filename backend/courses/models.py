@@ -36,6 +36,7 @@ class Course(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     is_published = models.BooleanField(default=False)
     is_featured = models.BooleanField(default=False)
+    is_free = models.BooleanField(default=False, help_text='Whether the course is free or paid')
     enrollment_type = models.CharField(max_length=20, choices=[
         ('self', 'Self Enrollment'),
         ('manual', 'Manual Enrollment'),

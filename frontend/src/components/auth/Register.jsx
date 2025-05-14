@@ -21,74 +21,84 @@ import {
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import DragPuzzle from './DragPuzzle';
-import { authAPI } from '../../services/authAPI';
+import { authAPI } from '../../services/api';
 
 const Register = () => {
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
     username: '',
     email: '',
     password: '',
-    userType: 'student'
+    first_name: '',
+    last_name: '',
+    user_type: 'student' // Default to student
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [loading, setLoading] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prevState => ({
+      ...prevState,
+      [name]: value
+    }));
+  };
+
+  // Special handler for radio button (user type)
+  const handleUserTypeChange = (value) => {
+    setFormData(prevState => ({
+      ...prevState,
+      user_type: value
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!isVerified) {
-      toast({
-        title: 'Verification Required',
-        description: 'Please complete the verification puzzle',
-        status: 'warning',
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
+    setLoading(true);
 
-    // Validate username
-    if (formData.username.length < 3) {
-      toast({
-        title: 'Invalid Username',
-        description: 'Username must be at least 3 characters long',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    setIsLoading(true);
     try {
+      // Validate required fields
+      if (!formData.username || !formData.email || !formData.password) {
+        toast({
+          title: 'Error',
+          description: 'Please fill in all required fields',
+          status: 'error',
+          duration: 3000,
+          isClosable: true,
+        });
+        return;
+      }
+
+      // Prepare registration data
       const registrationData = {
-        username: formData.username,
-        email: formData.email,
+        username: formData.username.trim(),
+        email: formData.email.trim(),
         password: formData.password,
-        first_name: formData.firstName,
-        last_name: formData.lastName,
-        user_type: formData.userType
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        user_type: formData.user_type.toLowerCase()
       };
 
       console.log('Registering with:', registrationData);
-      
-      // Call the registration API
-      await authAPI.register(registrationData);
-      
+      const response = await authAPI.register(registrationData);
+
       toast({
         title: 'Registration Successful',
-        description: 'You can now log in with your username and password',
+        description: 'Welcome to our platform!',
         status: 'success',
         duration: 3000,
         isClosable: true,
       });
-      navigate('/login');
+
+      // Redirect based on user type
+      const userType = response.user_type?.toLowerCase() || response.role?.toLowerCase();
+      const redirectPath = userType === 'instructor' ? '/instructor/dashboard' : '/student/dashboard';
+      navigate(redirectPath);
+
     } catch (error) {
+      console.error('Registration error:', error);
       toast({
         title: 'Registration Failed',
         description: error.message || 'An error occurred during registration',
@@ -97,7 +107,7 @@ const Register = () => {
         isClosable: true,
       });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -112,14 +122,6 @@ const Register = () => {
         isClosable: true,
       });
     }
-  };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
   };
 
   const bgColor = useColorModeValue('white', 'gray.700');
@@ -149,8 +151,8 @@ const Register = () => {
                 <FormControl isRequired>
                   <FormLabel>First Name</FormLabel>
                   <Input
-                    name="firstName"
-                    value={formData.firstName}
+                    name="first_name"
+                    value={formData.first_name}
                     onChange={handleChange}
                     placeholder="Max"
                   />
@@ -159,8 +161,8 @@ const Register = () => {
                 <FormControl isRequired>
                   <FormLabel>Last Name</FormLabel>
                   <Input
-                    name="lastName"
-                    value={formData.lastName}
+                    name="last_name"
+                    value={formData.last_name}
                     onChange={handleChange}
                     placeholder="Robinson"
                   />
@@ -213,13 +215,12 @@ const Register = () => {
               </FormControl>
 
               <FormControl isRequired>
-                <FormLabel>I want to join as</FormLabel>
+                <FormLabel>I want to register as:</FormLabel>
                 <RadioGroup
-                  name="userType"
-                  value={formData.userType}
-                  onChange={(value) => setFormData(prev => ({ ...prev, userType: value }))}
+                  value={formData.user_type}
+                  onChange={handleUserTypeChange}
                 >
-                  <Stack direction="row" spacing={6}>
+                  <Stack direction="row" spacing={4}>
                     <Radio value="student">Student</Radio>
                     <Radio value="instructor">Instructor</Radio>
                   </Stack>
@@ -243,7 +244,7 @@ const Register = () => {
                 colorScheme="blue"
                 size="lg"
                 width="full"
-                isLoading={isLoading}
+                isLoading={loading}
                 loadingText="Creating account..."
                 disabled={!isVerified}
               >

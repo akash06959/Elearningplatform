@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Category, Course, Section, Lesson, Review, CourseTag, Module, UserProgress
 from enrollments.models import Enrollment, Progress
 from django.contrib.auth.models import User
+from django.db import models
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -211,6 +212,7 @@ class CourseSerializer(serializers.ModelSerializer):
     cover_image_url = serializers.SerializerMethodField()
     modules = ModuleSerializer(many=True, read_only=True)
     progress = serializers.SerializerMethodField()
+    is_free = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Course
@@ -225,7 +227,7 @@ class CourseSerializer(serializers.ModelSerializer):
             'peer_review_enabled', 'auto_grade_enabled', 'proctoring_enabled',
             'offline_access_enabled', 'mobile_compatible', 'accessibility_features',
             'version', 'status', 'average_rating', 'total_students', 'tags',
-            'reviews', 'modules', 'progress'
+            'reviews', 'modules', 'progress', 'is_free'
         ]
         read_only_fields = ['instructor', 'created_at', 'updated_at']
 
@@ -290,15 +292,48 @@ class CourseSerializer(serializers.ModelSerializer):
                 'status': instance.status,
                 'average_rating': 0,
                 'total_students': 0,
-                'progress': 0
+                'progress': 0,
+                'is_free': False
             }
 
 class CourseListSerializer(serializers.ModelSerializer):
-    category = serializers.StringRelatedField()
-    
+    instructor = serializers.CharField(source='instructor.username')
+    category = serializers.CharField(source='category.name')
+    thumbnail_url = serializers.SerializerMethodField()
+    cover_image_url = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    total_students = serializers.SerializerMethodField()
+
     class Meta:
         model = Course
-        fields = ['id', 'title', 'description', 'price', 'instructor', 'thumbnail', 'category', 'created_at']
+        fields = [
+            'id', 'title', 'description', 'price', 'instructor', 
+            'thumbnail', 'thumbnail_url', 'cover_image_url', 'category', 
+            'difficulty', 'duration_in_weeks', 'created_at', 'average_rating',
+            'total_students'
+        ]
+
+    def get_thumbnail_url(self, obj):
+        if obj.thumbnail:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.thumbnail.url)
+            return obj.thumbnail.url
+        return None
+
+    def get_cover_image_url(self, obj):
+        if obj.cover_image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.cover_image.url)
+            return obj.cover_image.url
+        return None
+
+    def get_average_rating(self, obj):
+        return obj.reviews.aggregate(avg_rating=models.Avg('rating'))['avg_rating'] or 0
+
+    def get_total_students(self, obj):
+        return obj.enrollments.filter(status='active').count()
 
 class EnrollmentSerializer(serializers.ModelSerializer):
     course = CourseListSerializer(read_only=True)
@@ -325,11 +360,12 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     is_enrolled = serializers.SerializerMethodField()
     instructor_name = serializers.SerializerMethodField()
     category_name = serializers.CharField(source='category.name', read_only=True)
+    thumbnail_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Course
         fields = [
-            'id', 'title', 'description', 'thumbnail', 'cover_image',
+            'id', 'title', 'description', 'thumbnail', 'thumbnail_url', 'cover_image',
             'difficulty_level', 'instructor', 'instructor_name',
             'category', 'category_name', 'estimated_duration',
             'price', 'is_published', 'is_featured', 'is_enrolled',
@@ -349,3 +385,8 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             course=obj,
             status__in=['active', 'completed']
         ).exists()
+        
+    def get_thumbnail_url(self, obj):
+        if obj.thumbnail:
+            return obj.thumbnail.url
+        return None

@@ -14,7 +14,7 @@ import {
   useToast,
 } from '@chakra-ui/react';
 import { useNavigate, Link } from 'react-router-dom';
-import { authAPI } from '../../services/authAPI';
+import { authAPI } from '../../services/api';
 import DragPuzzle from './DragPuzzle';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -52,25 +52,48 @@ const Login = () => {
       return;
     }
 
+    // Validate required fields
+    if (!formData.username || !formData.password) {
+      toast({
+        title: 'Missing Fields',
+        description: 'Please enter both username and password',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
     setError(null);
     setLoading(true);
 
     try {
       console.log('Login attempt:', {
         username: formData.username,
-        user_type: formData.user_type
+        user_type: formData.user_type,
+        hasPassword: !!formData.password
       });
 
-      const response = await authAPI.login(formData);
+      // Ensure all required fields are present and properly formatted
+      const loginData = {
+        username: formData.username.trim(),
+        password: formData.password,
+        user_type: formData.user_type.toLowerCase()
+      };
+
+      const response = await authAPI.login(loginData);
       console.log('Login response:', response);
 
       // Call loginUser from AuthContext to update global state
+      const userInfo = {
+        username: response.username,
+        first_name: response.first_name,
+        last_name: response.last_name,
+        user_type: response.user_type?.toLowerCase() || response.role?.toLowerCase()
+      };
+
       const dashboardPath = await loginUser(
-        {
-          username: formData.username,
-          user_type: formData.user_type,
-          ...response
-        },
+        userInfo,
         {
           access: response.access,
           refresh: response.refresh
@@ -79,7 +102,7 @@ const Login = () => {
 
       toast({
         title: 'Login Successful',
-        description: `Welcome back, ${formData.username}!`,
+        description: `Welcome back, ${response.first_name || formData.username}!`,
         status: 'success',
         duration: 3000,
         isClosable: true,

@@ -90,6 +90,7 @@ class CourseListView(ListView):
                     'title': course.title,
                     'description': course.description,
                     'thumbnail': course.thumbnail.url if course.thumbnail else None,
+                    'thumbnail_url': course.thumbnail.url if course.thumbnail else None,
                     'cover_image': course.cover_image.url if course.cover_image else None,
                     'instructor': course.instructor.username,
                     'category': course.category.name,
@@ -172,6 +173,7 @@ class CourseDetailView(DetailView):
                     'title': course.title,
                     'description': course.description,
                     'thumbnail': course.thumbnail.url if course.thumbnail else None,
+                    'thumbnail_url': course.thumbnail.url if course.thumbnail else None,
                     'cover_image': course.cover_image.url if course.cover_image else None,
                     'instructor': {
                         'id': course.instructor.id,
@@ -428,6 +430,7 @@ class CourseViewSet(viewsets.ModelViewSet):
                 'is_published': course.is_published,
                 'price': str(course.price),
                 'created_at': course.created_at.isoformat(),
+                'thumbnail': course.thumbnail.url if course.thumbnail else None,
                 'thumbnail_url': course.thumbnail.url if course.thumbnail else None,
                 'cover_image_url': course.cover_image.url if course.cover_image else None,
                 'instructor': {
@@ -655,10 +658,13 @@ class EnrolledCoursesAPIView(generics.ListAPIView):
     """API endpoint to list all courses the user is enrolled in"""
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = PageNumberPagination
+    pagination_class = None  # Disable pagination for simplicity
 
     def get_queryset(self):
         """Return courses that the user is enrolled in"""
+        if not self.request.user.is_authenticated:
+            return Course.objects.none()
+            
         return Course.objects.filter(
             enrollments__user=self.request.user,
             enrollments__status='active'
@@ -672,19 +678,21 @@ class EnrolledCoursesAPIView(generics.ListAPIView):
         ).distinct()
 
     def list(self, request, *args, **kwargs):
+        """Return list of enrolled courses with proper error handling"""
         try:
-            queryset = self.get_queryset()
-            page = self.paginate_queryset(queryset)
-            
-            if page is not None:
-                serializer = self.get_serializer(page, many=True)
-                response = self.get_paginated_response(serializer.data)
-            else:
-                serializer = self.get_serializer(queryset, many=True)
-                response = Response(serializer.data)
+            # Check authentication
+            if not request.user.is_authenticated:
+                return Response({
+                    'status': 'error',
+                    'message': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
 
-            # Add enrollment data to each course
-            for course_data in response.data['results'] if page is not None else response.data:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            courses_data = serializer.data
+
+            # Add enrollment and progress data to each course
+            for course_data in courses_data:
                 enrollment = Enrollment.objects.filter(
                     user=request.user,
                     course_id=course_data['id']
@@ -707,7 +715,7 @@ class EnrolledCoursesAPIView(generics.ListAPIView):
                         'completed_at'
                     )
                     
-                    # Calculate total lessons across all modules and sections
+                    # Calculate total lessons
                     course = queryset.get(id=course_data['id'])
                     total_lessons = sum(
                         section.lessons.count()
@@ -724,22 +732,26 @@ class EnrolledCoursesAPIView(generics.ListAPIView):
                         } for p in progress_data}
                     }
 
-            return response
+            return Response({
+                'status': 'success',
+                'data': courses_data
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            print(f"Error in EnrolledCoursesAPIView: {str(e)}")
+            print(f"Error in EnrolledCoursesAPIView.list: {str(e)}")
             return Response({
-                'error': 'Failed to fetch enrolled courses',
-                'message': str(e)
+                'status': 'error',
+                'message': 'Failed to fetch enrolled courses. Please try again later.',
+                'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CourseListAPIView(generics.ListAPIView):
-    serializer_class = CourseSerializer
-    permission_classes = [AllowAny]
+    """API endpoint to list all published courses"""
+    serializer_class = CourseListSerializer
+    permission_classes = [AllowAny]  # Allow any user to view the course list
     pagination_class = None
 
     def get_queryset(self):
-        print("\n=== CourseListAPIView.get_queryset ===")
         queryset = Course.objects.filter(is_published=True).select_related(
             'instructor',
             'category'
@@ -750,46 +762,51 @@ class CourseListAPIView(generics.ListAPIView):
             'enrollments'
         ).order_by('-created_at')
         
-        print(f"Found {queryset.count()} published courses")
-        
         # Apply filters
         category = self.request.query_params.get('category', None)
         search = self.request.query_params.get('search', None)
         difficulty = self.request.query_params.get('difficulty', None)
-        price_min = self.request.query_params.get('price_min', None)
-        price_max = self.request.query_params.get('price_max', None)
         
         if category:
-            queryset = queryset.filter(category__id=category)
+            queryset = queryset.filter(category__name__iexact=category)
+            
         if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) | 
-                Q(description__icontains=search) |
-                Q(instructor__username__icontains=search)
-            )
+            search_terms = search.split()
+            q_objects = Q()
+            for term in search_terms:
+                q_objects |= (
+                    Q(title__icontains=term) | 
+                    Q(description__icontains=term) |
+                    Q(instructor__username__icontains=term) |
+                    Q(category__name__icontains=term)
+                )
+            queryset = queryset.filter(q_objects)
+            
         if difficulty:
             queryset = queryset.filter(difficulty=difficulty)
-        if price_min is not None:
-            queryset = queryset.filter(price__gte=float(price_min))
-        if price_max is not None:
-            queryset = queryset.filter(price__lte=float(price_max))
         
-        print(f"After applying filters: {queryset.count()} courses")
         return queryset
 
     def list(self, request, *args, **kwargs):
         try:
-            print("\n=== CourseListAPIView.list ===")
             queryset = self.get_queryset()
             serializer = self.get_serializer(queryset, many=True)
             
-            # Return the serialized data directly as a list
+            # If it's a search request, return suggestions
+            if request.query_params.get('search'):
+                suggestions = []
+                for course in queryset:
+                    suggestions.append({
+                        'id': course.id,
+                        'title': course.title,
+                        'instructor': course.instructor.username,
+                        'category': course.category.name if course.category else None
+                    })
+                return Response(suggestions, status=status.HTTP_200_OK)
+            
             return Response(serializer.data, status=status.HTTP_200_OK)
             
         except Exception as e:
-            print(f"Error in CourseListAPIView.list: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return Response(
                 {
                     'error': 'Failed to fetch courses',
@@ -803,72 +820,212 @@ class CreateCourseAPIView(generics.CreateAPIView):
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticated]
     
-    def perform_create(self, serializer):
-        # Ensure the current user is set as the instructor
-        serializer.save(instructor=self.request.user, status='draft')
-        
     def create(self, request, *args, **kwargs):
         print("\n=== Creating New Course ===")
         print(f"User: {request.user.username} (ID: {request.user.id})")
-        print(f"Request Data: {request.data}")
-        
-        # Handle the file upload (thumbnail)
-        thumbnail = request.FILES.get('thumbnail')
-        
-        # Prepare the data
-        data = request.data.copy()
-        print(f"Processed Data: {data}")
         
         try:
-            # Get the category
-            category_id = int(data.get('category'))
-            category = Category.objects.get(id=category_id)
-            print(f"Category: {category.name} (ID: {category.id})")
+            # Prepare the data
+            data = request.data.copy()
             
-            # Create a new course with the provided data
-            course = Course.objects.create(
-                title=data.get('title'),
-                description=data.get('description'),
-                price=float(data.get('price', 0)),
-                category=category,
+            # Validate required fields
+            required_fields = ['title', 'description', 'category']
+            for field in required_fields:
+                if not data.get(field):
+                    return Response(
+                        {'error': f'{field} is required'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Handle price and is_free
+            is_free = data.get('is_free', 'false').lower() == 'true'
+            if is_free:
+                data['price'] = 0
+            elif not data.get('price'):
+                data['price'] = 0
+            
+            # Create the course
+            serializer = self.get_serializer(data=data)
+            if not serializer.is_valid():
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Save the course
+            course = serializer.save(
                 instructor=request.user,
-                difficulty=data.get('level', 'beginner'),
-                duration_in_weeks=int(data.get('duration', 1)),
-                status='draft'  # Default to draft
+                status='draft',
+                is_free=is_free
             )
-            print(f"Created course: {course.title} (ID: {course.id})")
             
-            # Handle thumbnail if provided
-            if thumbnail:
-                course.thumbnail = thumbnail
+            # Handle thumbnail
+            if 'thumbnail' in request.FILES:
+                course.thumbnail = request.FILES['thumbnail']
                 course.save()
-                print("Thumbnail uploaded successfully")
             
-            # Return success response with course details
-            response_data = {
-                'id': course.id,
-                'title': course.title,
-                'instructor': request.user.username,
-                'status': course.status,
-                'message': 'Course created successfully'
-            }
-            print(f"Response data: {response_data}")
+            # Dictionary to store created modules by their temporary IDs
+            created_modules = {}
+            current_module_order = 1
             
-            return Response(response_data, status=status.HTTP_201_CREATED)
+            # Handle modules
+            if 'modules' in data:
+                try:
+                    modules_data = json.loads(data['modules'])
+                    for module_data in modules_data:
+                        # Store the temporary ID if provided
+                        temp_id = module_data.get('temp_id') or module_data.get('id')
+                        
+                        # Get order or use current_module_order
+                        order = module_data.get('order', current_module_order)
+                        
+                        module = Module.objects.create(
+                            course=course,
+                            title=module_data['title'],
+                            description=module_data.get('description', ''),
+                            order=order
+                        )
+                        
+                        # Increment the order counter
+                        current_module_order = max(current_module_order, order) + 1
+                        
+                        # Store the created module with its temporary ID
+                        if temp_id:
+                            created_modules[str(temp_id)] = module
+                        
+                        # Create sections for this module
+                        if 'sections' in module_data:
+                            current_section_order = 1
+                            for section_data in module_data['sections']:
+                                # Get section order or use current_section_order
+                                section_order = section_data.get('order', current_section_order)
+                                
+                                section = Section.objects.create(
+                                    module=module,
+                                    title=section_data['title'],
+                                    description=section_data.get('description', ''),
+                                    content_type=section_data.get('content_type', 'video'),
+                                    video_url=section_data.get('video_url', ''),
+                                    pdf_url=section_data.get('pdf_url', ''),
+                                    order=section_order
+                                )
+                                
+                                # Increment the section order counter
+                                current_section_order = max(current_section_order, section_order) + 1
+                                
+                                # If this section is meant to have a quiz
+                                if section_data.get('content_type') == 'quiz':
+                                    # Create a lesson for the quiz
+                                    lesson = Lesson.objects.create(
+                                        section=section,
+                                        title=section_data.get('title', 'Quiz'),
+                                        content_type='quiz',
+                                        order=0
+                                    )
+                                    
+                                    # Create the quiz associated with this lesson
+                                    Quiz.objects.create(
+                                        lesson=lesson,
+                                        title=section_data.get('title', 'Quiz'),
+                                        description=section_data.get('description', ''),
+                                        questions=section_data.get('questions', [])
+                                    )
+                except json.JSONDecodeError:
+                    print("Error decoding modules JSON")
+                    course.delete()
+                    return Response(
+                        {'error': 'Invalid modules data format'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                except Exception as e:
+                    print(f"Error creating modules: {str(e)}")
+                    course.delete()
+                    return Response(
+                        {'error': f'Error creating modules: {str(e)}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             
-        except (ValueError, Category.DoesNotExist) as e:
-            error_message = f'Invalid category ID: {str(e)}'
-            print(f"Error: {error_message}")
+            # Handle quizzes
+            if 'quizzes' in data:
+                try:
+                    quizzes_data = json.loads(data['quizzes'])
+                    for quiz_data in quizzes_data:
+                        # Get module ID (could be temporary or real)
+                        module_id = str(quiz_data.get('module_id', ''))
+                        module_title = quiz_data.get('module_title', 'Quiz Module')
+                        
+                        # Try to find the module
+                        module = None
+                        
+                        # First check in our created_modules dictionary
+                        if module_id in created_modules:
+                            module = created_modules[module_id]
+                        else:
+                            # Try to find by real ID in database
+                            try:
+                                module = Module.objects.get(id=module_id, course=course)
+                            except Module.DoesNotExist:
+                                # Create a new module if none exists
+                                module = Module.objects.create(
+                                    course=course,
+                                    title=module_title,
+                                    description=f"Module for {quiz_data['title']}",
+                                    order=current_module_order
+                                )
+                                current_module_order += 1
+                        
+                        # Get the next section order for this module
+                        next_section_order = Section.objects.filter(module=module).count() + 1
+                        
+                        # Create a section for the quiz
+                        section = Section.objects.create(
+                            module=module,
+                            title=quiz_data['title'],
+                            description=quiz_data.get('description', ''),
+                            content_type='quiz',
+                            order=next_section_order
+                        )
+                        
+                        # Create a lesson for the quiz
+                        lesson = Lesson.objects.create(
+                            section=section,
+                            title=quiz_data['title'],
+                            content_type='quiz',
+                            order=0
+                        )
+                        
+                        # Create the quiz
+                        Quiz.objects.create(
+                            lesson=lesson,
+                            title=quiz_data['title'],
+                            description=quiz_data.get('description', ''),
+                            questions=quiz_data.get('questions', [])
+                        )
+                except json.JSONDecodeError:
+                    print("Error decoding quizzes JSON")
+                    course.delete()
+                    return Response(
+                        {'error': 'Invalid quizzes data format'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                except Exception as e:
+                    print(f"Error creating quizzes: {str(e)}")
+                    course.delete()
+                    return Response(
+                        {'error': f'Error creating quizzes: {str(e)}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
             return Response(
-                {'message': error_message},
-                status=status.HTTP_400_BAD_REQUEST
+                serializer.data,
+                status=status.HTTP_201_CREATED
             )
+            
         except Exception as e:
-            error_message = f'Error creating course: {str(e)}'
-            print(f"Error: {error_message}")
+            print(f"Error creating course: {str(e)}")
             return Response(
-                {'message': error_message},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
 class InstructorCoursesAPIView(generics.ListAPIView):
@@ -1014,7 +1171,7 @@ class InstructorCoursesAPIView(generics.ListAPIView):
 class CourseStatusUpdateAPIView(generics.UpdateAPIView):
     """API endpoint to update a course's status (publish/unpublish)"""
     serializer_class = CourseSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsInstructorOrAdminUser]
     lookup_field = 'pk'
     
     def get_queryset(self):
@@ -1026,6 +1183,13 @@ class CourseStatusUpdateAPIView(generics.UpdateAPIView):
             course = self.get_object()
             status_value = request.data.get('status')
             
+            # Log the request details
+            print(f"\n=== Updating Course Status ===")
+            print(f"Course: {course.title} (ID: {course.id})")
+            print(f"Current status: {'published' if course.is_published else 'draft'}")
+            print(f"New status: {status_value}")
+            print(f"User: {request.user.username} (ID: {request.user.id})")
+            
             # Validate the status value
             if status_value not in ['draft', 'published']:
                 return Response(
@@ -1035,10 +1199,22 @@ class CourseStatusUpdateAPIView(generics.UpdateAPIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            
+            # Verify user has permission
+            if not request.user.is_staff and request.user != course.instructor:
+                return Response(
+                    {
+                        'status': 'error',
+                        'message': 'You do not have permission to update this course'
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
                 
             # Update the course status
             course.is_published = (status_value == 'published')
             course.save()
+            
+            print(f"Status updated successfully to: {status_value}")
             
             serializer = self.get_serializer(course)
             return Response(
@@ -1049,7 +1225,16 @@ class CourseStatusUpdateAPIView(generics.UpdateAPIView):
                 },
                 status=status.HTTP_200_OK
             )
+        except Course.DoesNotExist:
+            return Response(
+                {
+                    'status': 'error',
+                    'message': 'Course not found'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
+            print(f"Error updating course status: {str(e)}")
             return Response(
                 {
                     'status': 'error',
@@ -2084,6 +2269,7 @@ def instructor_course_view(request, course_id):
             'price': str(course.price),
             'category': course.category.name if course.category else None,
             'thumbnail': request.build_absolute_uri(course.thumbnail.url) if course.thumbnail else None,
+            'thumbnail_url': request.build_absolute_uri(course.thumbnail.url) if course.thumbnail else None,
             'difficulty_level': course.difficulty_level,
             'duration_in_weeks': course.duration_in_weeks,
             'status': course.status,
@@ -2993,3 +3179,65 @@ def fix_module_pdf(request, module_id):
         return Response({
             'error': str(e)
         }, status=500)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def enroll_course(request, course_id):
+    """Enroll in a course"""
+    try:
+        course = get_object_or_404(Course, id=course_id)
+        user = request.user
+        
+        # Check if course exists and is published
+        if not course.is_published:
+            return Response(
+                {'message': 'This course is not available for enrollment.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if already enrolled
+        enrollment = Enrollment.objects.filter(user=user, course=course).first()
+        if enrollment:
+            if enrollment.status == 'active':
+                return Response(
+                    {'message': 'You are already enrolled in this course'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            elif enrollment.status == 'dropped':
+                # Reactivate enrollment
+                enrollment.status = 'active'
+                enrollment.save()
+                return Response(
+                    {'message': 'Your enrollment has been reactivated'},
+                    status=status.HTTP_200_OK
+                )
+        
+        # Create new enrollment
+        enrollment = Enrollment.objects.create(
+            user=user,
+            course=course,
+            status='active'
+        )
+        
+        # Create progress records for all lessons
+        lessons = Lesson.objects.filter(section__course=course)
+        Progress.objects.bulk_create([
+            Progress(
+                user=user,
+                lesson=lesson,
+                enrollment=enrollment,
+                completed=False
+            ) for lesson in lessons
+        ])
+        
+        return Response(
+            {'message': 'Successfully enrolled in the course'},
+            status=status.HTTP_201_CREATED
+        )
+        
+    except Exception as e:
+        print(f"Error in enrollment: {str(e)}")
+        return Response(
+            {'message': 'An error occurred during enrollment'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

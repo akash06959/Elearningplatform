@@ -34,14 +34,15 @@ export const AuthProvider = ({ children }) => {
 
         // Store user info with consistent role field
         const userInfo = {
+            ...userData,
             username: userData.username,
             role: userData.user_type?.toLowerCase(),
-            email: userData.email,
-            id: userData.id,
-            ...userData,
+            user_type: userData.user_type?.toLowerCase(),
+            profile_picture: userData.profile_picture || null,
         };
         
         localStorage.setItem('user', JSON.stringify(userInfo));
+        localStorage.setItem('user_type', userInfo.user_type);
         setUser(userInfo);
 
         console.log('User state updated:', userInfo);
@@ -59,13 +60,29 @@ export const AuthProvider = ({ children }) => {
         navigate('/login');
     }, [navigate]);
 
+    const updateUserProfile = async (profileData) => {
+        const currentUser = JSON.parse(localStorage.getItem('user'));
+        const updatedUser = {
+            ...currentUser,
+            ...profileData,
+            profile_picture: profileData.profile_picture 
+                ? profileData.profile_picture.startsWith('http') 
+                    ? profileData.profile_picture 
+                    : `http://localhost:8000${profileData.profile_picture.replace(/^\/media/, '/media')}`
+                : currentUser.profile_picture,
+        };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        setUser(updatedUser);
+    };
+
     const contextData = {
         user,
         setUser,
         authTokens,
         setAuthTokens,
         loginUser,
-        logoutUser
+        logoutUser,
+        updateUserProfile,
     };
 
     return (
