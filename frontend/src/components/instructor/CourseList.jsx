@@ -120,10 +120,15 @@ const InstructorCourseList = () => {
         }
         
         try {
-            await courseAPI.deleteCourse(courseId);
+            const response = await courseAPI.deleteCourse(courseId);
             
-            // Remove from local state
-            setCourses(courses.filter(course => course.id !== courseId));
+            // Remove from local state using functional update
+            setCourses(prevCourses => {
+                const updatedCourses = prevCourses.filter(course => course.id !== courseId);
+                console.log('Courses after deletion:', updatedCourses);
+                return updatedCourses;
+            });
+            
             toast({
                 title: 'Success',
                 description: 'Course deleted successfully',
@@ -131,6 +136,8 @@ const InstructorCourseList = () => {
                 duration: 3000,
                 isClosable: true,
             });
+
+            return response; // Return response so CourseCard can handle loading state
         } catch (error) {
             console.error('Error deleting course:', error);
             toast({
@@ -140,6 +147,7 @@ const InstructorCourseList = () => {
                 duration: 5000,
                 isClosable: true,
             });
+            throw error; // Re-throw to let CourseCard handle loading state
         }
     };
 

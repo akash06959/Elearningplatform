@@ -1340,152 +1340,16 @@ export const courseAPI = {
     try {
       console.log(`\n=== Creating payment order for course ${courseId} ===`);
       
-      // Log the constructed URL
       const requestUrl = `courses/${courseId}/create-payment/`;
-      console.log("Payment order request URL:", `${api.defaults.baseURL}/${requestUrl}`);
+      console.log("Payment order request URL:", requestUrl);
       
-      // Try using the Razorpay payment endpoint first
-      try {
-        // Add debugging for request headers
-        console.log("Request headers:", api.defaults.headers);
-        
-        // Check auth token
-        const authTokens = localStorage.getItem('authTokens');
-        console.log("Auth token available:", !!authTokens);
-        console.log("Auth token first 10 chars:", authTokens ? JSON.parse(authTokens).access.substring(0, 10) + "..." : "No token");
-        
-        // Make request with retry logic
-        let attempts = 0;
-        const maxAttempts = 1; // Reduced to just 1 attempt before trying the fallback
-        let lastError = null;
-        
-        while (attempts < maxAttempts) {
-          attempts++;
-          console.log(`Attempt ${attempts} to create payment order...`);
-          
-          try {
-            console.log("Sending POST request to:", requestUrl);
-            const response = await api.post(requestUrl);
-            console.log("Payment order response:", response);
-            
-            if (!response || !response.data) {
-              console.error("Invalid payment order response:", response);
-              throw new Error("Invalid response from payment order API");
-            }
-            
-            // Log the success details
-            console.log("Payment order creation successful:", {
-              orderId: response.data.id,
-              amount: response.data.amount,
-              currency: response.data.currency
-            });
-            
-            return response.data;
-          } catch (error) {
-            console.error(`Attempt ${attempts} failed:`, error);
-            
-            // Try to extract more specific error details from the response HTML
-            let errorDetails = {};
-            try {
-              if (error.response?.data && typeof error.response.data === 'string' && error.response.data.includes('<!DOCTYPE html>')) {
-                console.log("Attempting to extract error from HTML response");
-                
-                // Check if there's a Python traceback in the response
-                const tracebackStart = error.response.data.indexOf('Traceback (most recent call last):');
-                if (tracebackStart > -1) {
-                  const traceback = error.response.data.substring(tracebackStart);
-                  const errorMessageMatch = traceback.match(/(?:Error|Exception):\s*(.+?)(?:\n|$)/);
-                  if (errorMessageMatch && errorMessageMatch[1]) {
-                    errorDetails.pythonError = errorMessageMatch[1].trim();
-                    console.error("Extracted Python error:", errorDetails.pythonError);
-                  }
-                }
-              } else if (error.response?.data) {
-                // If it's a JSON response with error details
-                errorDetails = error.response.data;
-                console.error("Error response data:", errorDetails);
-              }
-            } catch (parseError) {
-              console.error("Error parsing error details:", parseError);
-            }
-            
-            console.error("Error details:", {
-              message: error.message,
-              status: error.response?.status,
-              statusText: error.response?.statusText,
-              data: errorDetails || error.response?.data,
-              url: error.config?.url
-            });
-            
-            lastError = error;
-            
-            // Save the structured error details to the error object
-            lastError.extractedDetails = errorDetails;
-            
-            // If this is not the last attempt, wait before retrying
-            if (attempts < maxAttempts) {
-              console.log(`Waiting before retry ${attempts + 1}...`);
-              await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
-            }
-          }
-        }
-        
-        // If we got here, all attempts failed - try direct payment endpoint
-        console.log("Standard payment endpoint failed, trying direct payment endpoint...");
-        return await courseAPI.directPaymentOrder(courseId);
-        
-      } catch (mainError) {
-        // If the standard method fails, try direct payment
-        console.error("Standard payment creation failed completely:", mainError);
-        return await courseAPI.directPaymentOrder(courseId);
-      }
-    } catch (error) {
-      console.error('Error creating payment order:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.extractedDetails || error.response?.data,
-        status: error.response?.status,
-        url: error.config?.url
-      });
-      
-      // Create a more informative error message based on available details
-      let errorMessage = 'Failed to create payment order';
-      
-      if (error.extractedDetails?.pythonError) {
-        errorMessage = `Backend error: ${error.extractedDetails.pythonError}`;
-      } else if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-        if (error.response.data.details) {
-          errorMessage += `: ${error.response.data.details}`;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      throw new Error(errorMessage);
-    }
-  },
-  
-  // Direct payment order (fallback method without using Razorpay)
-  directPaymentOrder: async (courseId) => {
-    try {
-      console.log(`\n=== Creating DIRECT payment order for course ${courseId} ===`);
-      
-      // Log the constructed URL
-      const requestUrl = `courses/${courseId}/direct-payment/`;
-      console.log("Direct payment order request URL:", `${api.defaults.baseURL}/${requestUrl}`);
-      
-      // Make request
-      console.log("Sending POST request to direct payment endpoint:", requestUrl);
       const response = await api.post(requestUrl);
       
       if (!response || !response.data) {
-        console.error("Invalid direct payment order response:", response);
-        throw new Error("Invalid response from direct payment API");
+        throw new Error("Invalid response from payment order API");
       }
       
-      // Log the success details
-      console.log("Direct payment order created successfully:", {
+      console.log("Payment order created successfully:", {
         orderId: response.data.id,
         amount: response.data.amount,
         currency: response.data.currency
@@ -1493,54 +1357,83 @@ export const courseAPI = {
       
       return response.data;
     } catch (error) {
-      console.error('Error creating direct payment order:', error);
+      console.error('Error creating payment order:', error);
       
-      // If even this fails, we're out of options
+      // Try direct payment as fallback
+      if (error.response?.status === 404 || error.message.includes("payment system")) {
+        console.log("Standard payment failed, trying direct payment...");
+        return await courseAPI.directPaymentOrder(courseId);
+      }
+      
+      throw error;
+    }
+  },
+  
+  // Verify payment after successful Razorpay transaction
+  verifyPayment: async (courseId, paymentData) => {
+    try {
+      console.log(`\n=== Verifying payment for course ${courseId} ===`);
+      console.log("Payment data:", paymentData);
+      
+      const requestUrl = `courses/${courseId}/verify-payment/`;
+      console.log("Payment verification URL:", requestUrl);
+      
+      const response = await api.post(requestUrl, paymentData);
+      
+      console.log("Payment verification response:", response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error verifying payment:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Payment verification failed');
+    }
+  },
+  
+  // Direct payment order (fallback method)
+  directPaymentOrder: async (courseId) => {
+    try {
+      console.log(`\n=== Creating direct payment order for course ${courseId} ===`);
+      
+      const requestUrl = `courses/${courseId}/direct-payment/`;
+      console.log("Direct payment order URL:", requestUrl);
+      
+      const response = await api.post(requestUrl);
+      
+      if (!response || !response.data) {
+        throw new Error("Invalid response from direct payment API");
+      }
+      
+      console.log("Direct payment order created successfully:", response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating direct payment order:', error);
       throw new Error('Payment system is completely unavailable. Please try direct enrollment instead.');
     }
   },
 
-  // Verify payment and complete enrollment
-  verifyPayment: async (courseId, paymentData) => {
+  // Delete a course
+  deleteCourse: async (courseId) => {
     try {
-      console.log(`\n=== Verifying payment for course ${courseId} ===`);
-      const response = await api.post(`courses/${courseId}/verify-payment/`, paymentData);
+      console.log('\n=== Deleting Course ===');
+      console.log('Course ID:', courseId);
+      
+      // Use the correct endpoint that matches Django's URL configuration
+      const endpoint = `courses/instructor/courses/${courseId}/`;
+      
+      console.log('Using endpoint:', endpoint);
+      const response = await api.delete(buildUrl(endpoint));
+      
+      console.log('Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      });
+      
       return response;
     } catch (error) {
-      console.error('Error verifying payment:', error);
-      throw new Error(
-        error.response?.data?.error || 
-        error.message || 
-        'Failed to verify payment'
-      );
+      console.error('Error deleting course:', error);
+      throw error;
     }
   },
-  
-  // Direct enrollment for emergency access (bypasses payment)
-  directEnroll: async (courseId) => {
-    try {
-      console.log(`\n=== Emergency direct enrollment for course ${courseId} ===`);
-      // Try a couple of different potential endpoints
-      try {
-        const response = await api.post(`courses/${courseId}/direct-enroll/`);
-        return response;
-      } catch (err) {
-        if (err.response?.status === 404) {
-          // Try alternate endpoint
-          const response = await api.post(`enrollments/direct/${courseId}/`);
-          return response;
-        }
-        throw err;
-      }
-    } catch (error) {
-      console.error('Error with direct enrollment:', error);
-      throw new Error(
-        error.response?.data?.error || 
-        error.message || 
-        'Failed to direct enroll'
-      );
-    }
-  }
 };
 
 // Enrollment-related API calls

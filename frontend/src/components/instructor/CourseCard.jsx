@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
     Box,
@@ -10,19 +10,27 @@ import {
     HStack,
     Heading,
     Flex,
+    Spinner,
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon, ViewIcon } from '@chakra-ui/icons';
 
 const CourseCard = ({ course, onPublishToggle, onDelete }) => {
+    const [isDeleting, setIsDeleting] = useState(false);
+
     const handlePublishToggle = () => {
         if (onPublishToggle) {
             onPublishToggle(course.id, course.status || (course.is_published ? 'published' : 'draft'));
         }
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (onDelete) {
-            onDelete(course.id);
+            setIsDeleting(true);
+            try {
+                await onDelete(course.id);
+            } finally {
+                setIsDeleting(false);
+            }
         }
     };
 
@@ -125,15 +133,19 @@ const CourseCard = ({ course, onPublishToggle, onDelete }) => {
                         colorScheme={course.is_published ? 'orange' : 'green'}
                         size="sm"
                         flex={1}
+                        isDisabled={isDeleting}
                     >
                         {course.is_published ? 'Unpublish' : 'Publish'}
                     </Button>
                     <Button
                         onClick={handleDelete}
-                        leftIcon={<DeleteIcon />}
+                        leftIcon={isDeleting ? <Spinner size="sm" /> : <DeleteIcon />}
                         colorScheme="red"
                         size="sm"
                         variant="ghost"
+                        isLoading={isDeleting}
+                        loadingText="Deleting..."
+                        isDisabled={isDeleting}
                     >
                         Delete
                     </Button>

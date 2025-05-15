@@ -34,8 +34,13 @@ import {
   AlertTitle,
   AlertDescription,
   useColorModeValue,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon,
 } from '@chakra-ui/react';
-import { FaGraduationCap, FaClock, FaUsers, FaStar, FaCheckCircle, FaBook, FaVideo, FaFileAlt, FaUser } from 'react-icons/fa';
+import { FaGraduationCap, FaClock, FaUsers, FaStar, FaCheckCircle, FaBook, FaVideo, FaFileAlt, FaUser, FaLock } from 'react-icons/fa';
 
 function CourseDetail() {
   const { courseId } = useParams();
@@ -58,6 +63,7 @@ function CourseDetail() {
   const pageBgColor = useColorModeValue('gray.50', 'gray.900');
   const moduleBgColor = useColorModeValue('gray.50', 'gray.700');
   const sectionBgColor = useColorModeValue('white', 'gray.600');
+  const sectionHoverBg = useColorModeValue('gray.100', 'gray.600');
 
   // Function to handle the Continue Learning button click
   const handleContinueLearning = () => {
@@ -85,47 +91,39 @@ function CourseDetail() {
 
   // Add useEffect hook to ensure Razorpay script is loaded
   useEffect(() => {
-    // Ensure Razorpay script is loaded
-    const loadRazorpayScript = () => {
-      return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-        script.async = true;
-        script.onload = () => {
-          resolve(true);
-          console.log("Razorpay script loaded successfully!");
-        };
-        script.onerror = () => {
-          resolve(false);
-          console.error("Failed to load Razorpay script!");
-        };
-        document.body.appendChild(script);
-      });
-    };
-
-    // Check if script is already loaded
+    // Load Razorpay script only once
     if (!window.Razorpay) {
-      console.log("Razorpay not found, loading script...");
-      loadRazorpayScript();
-    } else {
-      console.log("Razorpay script already loaded!");
+      console.log("Loading Razorpay script...");
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => {
+        console.log("Razorpay script loaded successfully!");
+      };
+      script.onerror = () => {
+        console.error("Failed to load Razorpay script!");
+      };
+      document.body.appendChild(script);
     }
+  }, []);
 
+  // Add useEffect hook to fetch course data
+  useEffect(() => {
     const fetchCourseData = async () => {
       try {
         setLoading(true);
         const courseData = await courseAPI.getCourseById(courseId);
         setCourse(courseData);
         
-        // Check enrollment status
+        // Check if user is enrolled
         if (user) {
           const enrollmentStatus = await courseAPI.checkEnrollmentStatus(courseId);
-          setIsEnrolled(enrollmentStatus.isEnrolled);
+          setIsEnrolled(enrollmentStatus.is_enrolled);
         }
       } catch (err) {
         console.error('Error fetching course:', err);
         setError(err.message || 'Failed to load course details');
-        toast.error(err.message || 'Failed to load course details');
+        toast.error('Failed to load course details');
       } finally {
         setLoading(false);
       }
@@ -149,151 +147,83 @@ function CourseDetail() {
       setEnrolling(true);
       
       // Create payment order
-      try {
-        console.log("Creating payment order...");
-        
-        // Log version of Razorpay if available
-        if (window.Razorpay) {
-          console.log("Razorpay already available in window object");
-        } else {
-          console.log("Razorpay not found in window object yet");
-        }
-        
-        // Create a payment order
-        try {
-          const order = await courseAPI.createPaymentOrder(courseId);
-          console.log("Payment order created:", order);
+      console.log("Creating payment order...");
+      const order = await courseAPI.createPaymentOrder(courseId);
+      console.log("Payment order created:", order);
+      
+      if (!window.Razorpay) {
+        throw new Error("Payment system is not available. Please try again later.");
+      }
+      
+      // Initialize Razorpay options
+      const options = {
+        key: process.env.REACT_APP_RAZORPAY_KEY_ID || "rzp_test_LLNfQcS70cFk7H",
+        amount: order.amount,
+        currency: order.currency || "INR",
+        name: "E-Learning Platform", 
+        description: `Enrollment for ${course?.title || 'Course'}`,
+        order_id: order.id,
+        handler: async function (response) {
+          console.log("Payment successful", response);
           
-          // Hard-coded clean implementation that works reliably
-          const options = {
-            key: "rzp_test_LLNfQcS70cFk7H",
-            amount: order.amount,
-            currency: order.currency || "INR",
-            name: "E-Learning Platform", 
-            description: `Enrollment for ${course?.title || 'Course'}`,
-            order_id: order.id,
-            handler: function (response) {
-              // On successful payment
-              console.log("Payment successful", response);
-              
-              // Send success message
-              toast.success("Payment successful! You are now enrolled in the course.");
-              
-              // Verify payment on server
-              courseAPI.verifyPayment(courseId, {
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_signature: response.razorpay_signature
-              })
-              .then(() => {
-                // Update UI and redirect
-                setIsEnrolled(true);
-                window.location.href = `/courses/${courseId}/learn`;
-              })
-              .catch(err => {
-                console.error("Verification failed", err);
-                toast.error("Payment verification failed. Please contact support.");
-              });
-            },
-            prefill: {
-              name: user?.username || "",
-              email: user?.email || ""
-            },
-            theme: {
-              color: "#3182CE"
-            },
-            modal: {
-              ondismiss: function() {
-                console.log("Payment modal dismissed");
-                setEnrolling(false);
-              }
-            }
-          };
-
-          // Add script directly
-          console.log("Creating Razorpay script element...");
-          const script = document.createElement("script");
-          script.src = "https://checkout.razorpay.com/v1/checkout.js";
-          script.async = true;
-          
-          script.onload = function() {
-            console.log("Razorpay script loaded successfully");
-            try {
-              console.log("Initializing Razorpay with options:", JSON.stringify(options));
-              const rzp = new window.Razorpay(options);
-              console.log("Razorpay instance created");
-              
-              rzp.on('payment.failed', function (response) {
-                console.error("Payment failed:", response.error);
-                toast.error(`Payment failed: ${response.error.description}`);
-                setEnrolling(false);
-              });
-              
-              console.log("Opening Razorpay payment window...");
-              rzp.open();
-              console.log("Razorpay payment window opened");
-            } catch (rzpErr) {
-              console.error("Error initializing Razorpay:", rzpErr);
-              throw new Error(`Failed to initialize Razorpay: ${rzpErr.message}`);
-            }
-          };
-          
-          script.onerror = function() {
-            console.error("Failed to load Razorpay script");
-            throw new Error("Payment gateway not available - script loading failed");
-          };
-          
-          console.log("Appending Razorpay script to document body");
-          document.body.appendChild(script);
-          console.log("Script appended, waiting for load event");
-          onClose(); // Close enrollment modal
-          
-        } catch (orderError) {
-          console.error("Payment order creation failed:", orderError);
-          // Show error and offer direct enrollment
-          if (orderError.message.includes("ModuleNotFoundError") || 
-              orderError.message.includes("Payment gateway") ||
-              orderError.message.includes("Failed to create payment order")) {
-            throw new Error("Payment system is unavailable right now");
-          } else {
-            throw orderError;
-          }
-        }
-        
-      } catch (paymentError) {
-        console.error("Payment process failed:", paymentError);
-        console.error("Error details:", {
-          message: paymentError.message,
-          name: paymentError.name,
-          stack: paymentError.stack
-        });
-        
-        // Show user-friendly error and offer direct enrollment
-        const errorMessage = paymentError.message.includes("payment system")
-          ? "Payment system is currently unavailable. Would you like to try direct enrollment instead?"
-          : `${paymentError.message}. Would you like to try direct enrollment instead?`;
-        
-        if (window.confirm(errorMessage)) {
           try {
-            console.log("Trying direct enrollment as a fallback");
-            // Try direct enrollment as a fallback
-            await handleEmergencyAccess();
-            // Close the enrollment modal
+            // Verify payment on server
+            await courseAPI.verifyPayment(courseId, {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature
+            });
+            
+            // Update UI and show success message
+            toast.success("Payment successful! You are now enrolled in the course.");
+            setIsEnrolled(true);
             onClose();
-          } catch (directEnrollError) {
-            console.error("Direct enrollment also failed:", directEnrollError);
-            toast.error("Both payment and direct enrollment failed. Please try again later.");
+            
+            // Redirect to course learning page after a short delay
+            setTimeout(() => {
+              navigate(`/courses/${courseId}/learn`);
+            }, 1500);
+          } catch (verifyError) {
+            console.error("Payment verification failed", verifyError);
+            toast.error("Payment verification failed. Please contact support if payment was deducted.");
             setEnrolling(false);
           }
-        } else {
-          setEnrolling(false);
-          onClose();
+        },
+        prefill: {
+          name: user?.username || "",
+          email: user?.email || ""
+        },
+        theme: {
+          color: "#3182CE"
+        },
+        modal: {
+          ondismiss: function() {
+            console.log("Payment modal dismissed");
+            setEnrolling(false);
+            onClose();
+          }
         }
-      }
-    } catch (err) {
-      console.error('Payment initialization error:', err);
-      toast.error(err.message || 'Failed to initialize payment');
+      };
+
+      // Create and open Razorpay payment window
+      const rzp = new window.Razorpay(options);
+      
+      rzp.on('payment.failed', function (response) {
+        console.error("Payment failed:", response.error);
+        toast.error(`Payment failed: ${response.error.description}`);
+        setEnrolling(false);
+        onClose();
+      });
+      
+      rzp.open();
+      
+    } catch (error) {
+      console.error("Payment process failed:", error);
+      
+      // Show user-friendly error message
+      toast.error(error.message || "Failed to process enrollment. Please try again later.");
       setEnrolling(false);
+      onClose();
     }
   };
 
@@ -345,12 +275,16 @@ function CourseDetail() {
 
   if (loading) {
     return (
-      <Flex minH="80vh" align="center" justify="center">
-        <VStack spacing={4}>
-          <Spinner size="xl" color="blue.500" />
-          <Text>Loading course details...</Text>
-        </VStack>
-      </Flex>
+      <Box bg={pageBgColor} minH="100vh">
+        <Container maxW="container.xl" py={20}>
+          <VStack spacing={8}>
+            <Spinner size="xl" color="blue.500" thickness="4px" />
+            <Text fontSize="lg" color={textColor}>
+              Loading course details...
+            </Text>
+          </VStack>
+        </Container>
+      </Box>
     );
   }
 
@@ -424,7 +358,7 @@ function CourseDetail() {
                 </HStack>
                 <HStack>
                   <Icon as={FaStar} color="yellow.400" />
-                  <Text>{course?.rating || 0} rating</Text>
+                  <Text>{course?.avg_rating?.toFixed(1) || 'No ratings yet'}</Text>
                 </HStack>
               </HStack>
             </Box>
@@ -486,7 +420,7 @@ function CourseDetail() {
                   <Icon as={FaStar} />
                   <Text fontWeight="bold">Rating</Text>
                 </HStack>
-                <Text>{course?.rating || 0} out of 5</Text>
+                <Text>{course?.avg_rating?.toFixed(1) || 'No ratings'}</Text>
               </VStack>
             </SimpleGrid>
 
@@ -500,38 +434,64 @@ function CourseDetail() {
               mb={8}
             >
               <Heading size="md" mb={6}>Course Content</Heading>
-              <VStack spacing={4} align="stretch">
-                {course?.modules?.map((module, index) => (
-                  <Box
-                    key={module.id || index}
-                    p={4}
-                    bg={moduleBgColor}
-                    borderRadius="md"
-                  >
-                    <HStack justify="space-between" mb={2}>
-                      <Heading size="sm">{module.title}</Heading>
-                      <Badge colorScheme="blue">
-                        {module.sections?.length || 0} sections
-                      </Badge>
-                    </HStack>
-                    {module.sections?.map((section, sIndex) => (
-                      <HStack
-                        key={section.id || sIndex}
-                        p={2}
-                        bg={sectionBgColor}
-                        borderRadius="md"
-                        mt={2}
-                      >
-                        <Icon
-                          as={section.content_type === 'video' ? FaVideo : FaFileAlt}
-                          color="blue.500"
-                        />
-                        <Text fontSize="sm">{section.title}</Text>
-                      </HStack>
-                    ))}
-                  </Box>
-                ))}
-              </VStack>
+              {course?.modules && course.modules.length > 0 ? (
+                <Accordion allowMultiple>
+                  {course.modules.map((module, index) => (
+                    <AccordionItem key={module.id || index}>
+                      <h2>
+                        <AccordionButton>
+                          <Box flex="1" textAlign="left">
+                            <HStack justify="space-between">
+                              <Text fontWeight="bold">{module.title}</Text>
+                              <Badge colorScheme="blue">
+                                {module.sections?.length || 0} sections
+                              </Badge>
+                            </HStack>
+                          </Box>
+                          <AccordionIcon />
+                        </AccordionButton>
+                      </h2>
+                      <AccordionPanel pb={4}>
+                        <VStack spacing={3} align="stretch">
+                          {module.sections?.map((section, sIndex) => (
+                            <HStack
+                              key={section.id || sIndex}
+                              p={3}
+                              bg={sectionBgColor}
+                              borderRadius="md"
+                              justify="space-between"
+                              transition="all 0.2s"
+                              _hover={{ bg: sectionHoverBg }}
+                            >
+                              <HStack spacing={3}>
+                                <Icon
+                                  as={section.content_type === 'video' ? FaVideo : FaFileAlt}
+                                  color="blue.500"
+                                />
+                                <VStack align="start" spacing={0}>
+                                  <Text fontSize="sm" fontWeight="medium">
+                                    {section.title}
+                                  </Text>
+                                  {section.duration && (
+                                    <Text fontSize="xs" color={mutedTextColor}>
+                                      Duration: {section.duration}
+                                    </Text>
+                                  )}
+                                </VStack>
+                              </HStack>
+                              {!isEnrolled && (
+                                <Icon as={FaLock} color={mutedTextColor} />
+                              )}
+                            </HStack>
+                          ))}
+                        </VStack>
+                      </AccordionPanel>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              ) : (
+                <Text color={mutedTextColor}>No content available for this course yet.</Text>
+              )}
             </Box>
 
             {/* Instructor Info */}
@@ -541,31 +501,24 @@ function CourseDetail() {
               borderRadius="lg"
               border="1px"
               borderColor={borderColor}
+              mb={8}
             >
-              <Heading size="md" mb={6}>About the Instructor</Heading>
+              <Heading size="md" mb={4}>Instructor</Heading>
               <HStack spacing={4}>
-                <Box
-                  w="80px"
-                  h="80px"
-                  borderRadius="full"
-                  bg="blue.500"
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="center"
-                >
-                  <Icon as={FaUser} color="white" boxSize={8} />
-                </Box>
-                <VStack align="start" flex={1}>
-                  <Heading size="sm">{course?.instructor?.name || 'Unknown Instructor'}</Heading>
-                  <Text color={mutedTextColor}>
-                    {course?.instructor?.title || 'Course Instructor'}
+                <Icon as={FaUser} boxSize={12} color="blue.500" />
+                <Box>
+                  <Text fontWeight="bold" fontSize="lg">
+                    {course?.instructor?.name || 'Unknown Instructor'}
                   </Text>
-                </VStack>
+                  <Text color={mutedTextColor}>
+                    {course?.instructor?.bio || 'No bio available'}
+                  </Text>
+                </Box>
               </HStack>
             </Box>
           </Box>
 
-          {/* Sidebar */}
+          {/* Enrollment Card */}
           <Box>
             <Box
               position="sticky"
@@ -575,71 +528,67 @@ function CourseDetail() {
               borderRadius="lg"
               border="1px"
               borderColor={borderColor}
+              shadow="md"
             >
-              <Heading size="lg" mb={4}>${course?.price || 0}</Heading>
-              {isEnrolled ? (
-                <VStack spacing={4} width="100%">
+              <VStack spacing={6} align="stretch">
+                <Heading size="lg" color="blue.600">
+                  ${course?.price || 0}
+                </Heading>
+                
+                {isEnrolled ? (
+                  <VStack spacing={4} width="100%">
+                    <Button
+                      colorScheme="blue"
+                      size="lg"
+                      width="100%"
+                      onClick={handleContinueLearning}
+                    >
+                      Continue Learning
+                    </Button>
+                    <Button
+                      variant="outline"
+                      colorScheme="red"
+                      size="lg"
+                      width="100%"
+                      onClick={handleUnenroll}
+                      isLoading={cancelLoading}
+                    >
+                      Unenroll
+                    </Button>
+                  </VStack>
+                ) : (
                   <Button
-                    colorScheme="green"
+                    colorScheme="blue"
                     size="lg"
                     width="100%"
-                    leftIcon={<Icon as={FaBook} />}
-                    onClick={handleContinueLearning}
+                    onClick={handleEnrollClick}
+                    isLoading={enrolling}
                   >
-                    Continue Learning
+                    Enroll Now
                   </Button>
-                  <Button
-                    colorScheme="teal"
-                    size="md"
-                    width="100%"
-                    onClick={handleEmergencyAccess}
-                  >
-                    Emergency Access
-                  </Button>
-                  <Button
-                    colorScheme="red"
-                    variant="outline"
-                    width="100%"
-                    onClick={handleUnenroll}
-                    isLoading={cancelLoading}
-                  >
-                    Cancel Enrollment
-                  </Button>
+                )}
+
+                <VStack align="stretch" spacing={4}>
+                  <Heading size="sm">This course includes:</Heading>
+                  <List spacing={3}>
+                    <ListItem>
+                      <ListIcon as={FaCheckCircle} color="green.500" />
+                      {course?.modules?.length || 0} modules
+                    </ListItem>
+                    <ListItem>
+                      <ListIcon as={FaCheckCircle} color="green.500" />
+                      Lifetime access
+                    </ListItem>
+                    <ListItem>
+                      <ListIcon as={FaCheckCircle} color="green.500" />
+                      Certificate of completion
+                    </ListItem>
+                    <ListItem>
+                      <ListIcon as={FaCheckCircle} color="green.500" />
+                      Access on mobile and desktop
+                    </ListItem>
+                  </List>
                 </VStack>
-              ) : (
-                <Button
-                  colorScheme="blue"
-                  size="lg"
-                  width="100%"
-                  onClick={handleEnrollClick}
-                  isLoading={enrolling}
-                >
-                  Enroll Now
-                </Button>
-              )}
-
-              <Divider my={6} />
-
-              <VStack align="stretch" spacing={4}>
-                <Heading size="sm">This course includes:</Heading>
-                <List spacing={3}>
-                  <ListItem>
-                    <ListIcon as={FaCheckCircle} color="green.500" />
-                    {course?.modules?.length || 0} modules
-                  </ListItem>
-                  <ListItem>
-                    <ListIcon as={FaCheckCircle} color="green.500" />
-                    Lifetime access
-                  </ListItem>
-                  <ListItem>
-                    <ListIcon as={FaCheckCircle} color="green.500" />
-                    Certificate of completion
-                  </ListItem>
-                  <ListItem>
-                    <ListIcon as={FaCheckCircle} color="green.500" />
-                    Access on mobile and desktop
-                  </ListItem>
-                </List>
               </VStack>
             </Box>
           </Box>
