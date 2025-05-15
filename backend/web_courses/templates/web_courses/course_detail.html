@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container py-4">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="row">
+            <div class="col-md-8">
+                <h2 class="mb-4">{{ course.title }}</h2>
+                {% if course.image %}
+                    <img src="{{ course.image.url }}" class="img-fluid rounded mb-4" alt="{{ course.title }}">
+                {% endif %}
+                
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h5 class="card-title">Course Description</h5>
+                        <p class="card-text">{{ course.description }}</p>
+                    </div>
+                </div>
+
+                {% if is_enrolled %}
+                    <a href="#" class="btn btn-primary">Continue Learning</a>
+                {% else %}
+                    <form action="{% url 'web_courses:enroll' course.id %}" method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success">Enroll Now</button>
+                    </form>
+                {% endif %}
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Course Information</h5>
+                        <ul class="list-unstyled">
+                            <li><strong>Instructor:</strong> {{ course.instructor.get_full_name }}</li>
+                            <li><strong>Duration:</strong> {{ course.duration }}</li>
+                            <li><strong>Level:</strong> {{ course.level }}</li>
+                            <li><strong>Category:</strong> {{ course.category.name }}</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if debug %}
+        <div class="mt-4">
+            <h4>Debug Information</h4>
+            <pre>
+                Course ID: {{ course.id }}
+                Is Enrolled: {{ is_enrolled }}
+                User: {{ request.user.username }}
+            </pre>
+        </div>
+        {% endif %}
+    </div>
+{% endblock %} 

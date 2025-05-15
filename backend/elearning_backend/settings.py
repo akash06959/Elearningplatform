@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'enrollments',
     'exams',
     'analytics',
+    'web_courses',
     
     # Third-party apps
     'rest_framework',
@@ -214,3 +215,7 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 LOGIN_URL = 'accounts:login'
 LOGIN_REDIRECT_URL = 'accounts:dashboard'
 LOGOUT_REDIRECT_URL = 'accounts:login'
+
+# Razorpay settings
+RAZORPAY_KEY_ID = 'rzp_test_LLNfQcS70cFk7H'
+RAZORPAY_KEY_SECRET = '2kr7G2tzTE6oTKZUhDRdXo2Q'  # Updated with actual test secret key

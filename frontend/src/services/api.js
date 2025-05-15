@@ -12,9 +12,10 @@ const processImageUrl = (url) => {
 
 // Helper function to ensure proper URL construction
 const buildUrl = (endpoint) => {
-  // Remove leading/trailing slashes
-  const cleanEndpoint = endpoint.replace(/^\/+|\/+$/g, '');
-  return cleanEndpoint;
+  // Remove leading slashes but keep trailing slash if present
+  const cleanEndpoint = endpoint.replace(/^\/+/, '');
+  // Add trailing slash if not present
+  return cleanEndpoint.endsWith('/') ? cleanEndpoint : `${cleanEndpoint}/`;
 };
 
 // Create axios instance with default config
@@ -234,79 +235,41 @@ export const courseAPI = {
       if (status !== 'draft' && status !== 'published') {
         throw new Error('Invalid status value. Must be "draft" or "published"');
       }
-      
-      const endpoint = `courses/instructor/courses/${courseId}/update_status/`;
+
+      // Try multiple endpoints in order
+      const endpoints = [
+        `courses/instructor/courses/${courseId}/update_status/`,  // Primary endpoint matching Django's URLconf
+        `courses/${courseId}/update_status/`  // Fallback endpoint
+      ];
+
       const payload = {
         status: status,
         is_published: status === 'published'
       };
-      
-      console.log('Using endpoint:', endpoint);
-      console.log('With payload:', payload);
-      
-      const response = await api.patch(endpoint, payload);
-      
-      console.log('Response:', {
-        status: response.status,
-        statusText: response.statusText,
-        data: response.data
-      });
-      
-      if (response && response.data) {
-        return {
-          status: 'success',
-          course: response.data.course,
-          message: response.data.message || `Course ${status} successfully`
-        };
-      }
-      
-      throw new Error('No response data received');
-    } catch (error) {
-      console.error('Error in updateCourseStatus:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        details: error.response?.data?.detail || error.response?.data?.message,
-        stack: error.stack
-      });
-      
-      // Log the full error object for debugging
-      console.error('Full error object:', error);
-      
-      throw new Error(
-        error.response?.data?.message || 
-        error.response?.data?.detail || 
-        error.message || 
-        'Failed to update course status'
-      );
-    }
-  },
 
-  // Get course details by ID
-  getCourseById: async (courseId) => {
-    try {
-      console.log('\n=== Getting Course Details ===');
-      console.log('Course ID:', courseId);
-      
-      // Try multiple endpoints
-      const endpoints = [
-        `/api/courses/${courseId}/detail/`,
-        `/api/courses/instructor/courses/${courseId}/`,
-        `/api/courses/instructor/courses/${courseId}/detail/`,
-        `/api/courses/${courseId}/`,
-        `/api/courses/detail/${courseId}/`
-      ];
-      
-      let response = null;
       let lastError = null;
       
       // Try each endpoint until one works
       for (const endpoint of endpoints) {
         try {
-          console.log(`Trying endpoint: ${endpoint}`);
-          response = await api.get(endpoint);
-          console.log('Found working endpoint:', endpoint);
-          break;
+          console.log('Trying endpoint:', endpoint);
+          console.log('With payload:', payload);
+          
+          const response = await api.patch(endpoint, payload);
+          
+          console.log('Response:', {
+            status: response.status,
+            statusText: response.statusText,
+            data: response
+          });
+          
+          if (response) {
+            return {
+              status: 'success',
+              course: response.course || response,
+              message: response.message || `Course ${status === 'published' ? 'published' : 'unpublished'} successfully`
+            };
+          }
         } catch (error) {
           console.log(`Error with endpoint ${endpoint}:`, {
             status: error.response?.status,
@@ -322,93 +285,140 @@ export const courseAPI = {
         }
       }
       
-      // If all endpoints failed, throw the last error
-      if (!response) {
-        throw lastError || new Error('All endpoints failed');
-      }
+      // If we've tried all endpoints and none worked, throw the last error
+      throw lastError || new Error('All endpoints failed');
       
-      console.log('Course details full response:', response);
+    } catch (error) {
+      console.error('Error in updateCourseStatus:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        details: error.response?.data?.detail || error.response?.data?.message,
+        stack: error.stack
+      });
       
-      if (!response) {
-        throw new Error('No course data received');
-      }
+      // Log the full error object for debugging
+      console.error('Full error object:', error);
+
+      // Try to extract more specific error details from the response
+      let errorMessage = 'Failed to update course status';
       
-      let course = null;
-      
-      if (response.course) {
-        course = response.course;
-      } else {
-        course = response;
-      }
-      
-      // Process image URLs
-      if (course.thumbnail) {
-        course.thumbnail = processImageUrl(course.thumbnail);
-      }
-      if (course.cover_image) {
-        course.cover_image = processImageUrl(course.cover_image);
-      }
-      
-      // Ensure enrollment status is properly set - if not present, try to get it
-      if (course.enrolled === undefined && course.is_enrolled === undefined) {
-        try {
-          console.log('Enrollment status not in course data, checking separately');
-          const enrollmentStatus = await courseAPI.checkEnrollmentStatus(courseId);
-          console.log('Got enrollment status:', enrollmentStatus);
-          course.is_enrolled = enrollmentStatus.isEnrolled;
-          course.enrolled = enrollmentStatus.isEnrolled;
-        } catch (enrollmentError) {
-          console.error('Error getting enrollment status:', enrollmentError);
-          // Default to false to be safe
-          course.is_enrolled = false;
-          course.enrolled = false;
+      if (error.response?.data) {
+        if (typeof error.response.data === 'string' && error.response.data.includes('<!DOCTYPE html>')) {
+          // This is an HTML error page, likely containing Python traceback
+          const tracebackStart = error.response.data.indexOf('Traceback (most recent call last):');
+          if (tracebackStart > -1) {
+            const traceback = error.response.data.substring(tracebackStart);
+            const errorMessageMatch = traceback.match(/(?:Error|Exception):\s*(.+?)(?:\n|$)/);
+            if (errorMessageMatch && errorMessageMatch[1]) {
+              errorMessage = `Server error: ${errorMessageMatch[1].trim()}`;
+            }
+          }
+        } else if (error.response.data.detail) {
+          errorMessage = error.response.data.detail;
+        } else if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data;
         }
       }
       
-      // Process course modules for learning interface
-      if (course.modules && Array.isArray(course.modules)) {
-        course.modules.forEach(module => {
-          // Ensure each module has proper order and sections
-          module.order = module.order || module.id;
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get course details by ID
+  getCourseById: async (courseId) => {
+    try {
+      console.log('\n=== Getting Course Details ===');
+      console.log('Course ID:', courseId);
+      
+      // Try multiple endpoints
+      const endpoints = [
+        `courses/${courseId}/`,
+        `courses/${courseId}/detail/`,
+        `courses/instructor/courses/${courseId}/`,
+        `courses/detail/${courseId}/`
+      ];
+      
+      let response = null;
+      let lastError = null;
+      
+      // Try each endpoint until one works
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint: ${endpoint}`);
+          response = await api.get(endpoint);
+          console.log('Found working endpoint:', endpoint);
+          console.log('Response data:', response);
+          break;
+        } catch (error) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: error.response?.status,
+            message: error.message,
+            data: error.response?.data
+          });
           
-          if (module.sections && Array.isArray(module.sections)) {
-            module.sections.forEach(section => {
-              // Set defaults for sections
-              section.content_type = section.content_type || 'video';
-              section.video_url = section.video_url || '';
-              section.pdf_url = section.pdf_url || '';
-            });
-          } else {
-            module.sections = [];
+          // If not a 404, this is a "real" error with a valid endpoint
+          if (error.response?.status !== 404) {
+            throw error;
           }
-        });
-        
-        // Sort modules by order
-        course.modules.sort((a, b) => a.order - b.order);
-      } else {
-        course.modules = [];
+          
+          lastError = error;
+        }
       }
       
-      // Process course quizzes
-      if (course.quizzes && Array.isArray(course.quizzes)) {
-        course.quizzes.forEach(quiz => {
-          // Make sure each quiz has questions
-          if (!quiz.questions || !Array.isArray(quiz.questions)) {
-            quiz.questions = [];
-          }
-        });
-      } else {
-        course.quizzes = [];
+      // If we've tried all endpoints and none worked, throw the last error
+      if (!response) {
+        throw lastError || new Error('All endpoints failed');
       }
-      
-      console.log('Processed course details:', course);
-      return course;
+
+      // Process image URLs
+      if (response.thumbnail) {
+        response.thumbnail = processImageUrl(response.thumbnail);
+      }
+      if (response.cover_image) {
+        response.cover_image = processImageUrl(response.cover_image);
+      }
+
+      // Ensure modules array exists
+      if (!response.modules) {
+        response.modules = [];
+      }
+
+      // Sort modules by order
+      response.modules.sort((a, b) => a.order - b.order);
+
+      // For each module, ensure sections array exists and sort by order
+      response.modules.forEach(module => {
+        if (!module.sections) {
+          module.sections = [];
+        }
+        module.sections.sort((a, b) => a.order - b.order);
+      });
+
+      console.log('Processed course details:', response);
+      return response;
     } catch (error) {
       console.error('Error in getCourseById:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status
       });
+      
+      // Handle specific error cases
+      if (error.response?.status === 401) {
+        throw new Error('Please log in to view this course');
+      }
+      
+      if (error.response?.status === 403) {
+        throw new Error('You do not have permission to view this course');
+      }
+      
+      if (error.response?.status === 404) {
+        throw new Error('Course not found');
+      }
+      
       throw new Error('Failed to load course details. Please try again later.');
     }
   },
@@ -843,16 +853,15 @@ export const courseAPI = {
     }
   },
 
-  // Get enrolled courses
+  // Get enrolled courses for the current user
   getEnrolledCourses: async () => {
     try {
       console.log('\n=== Getting Enrolled Courses ===');
       
       // Try multiple potential endpoints that might contain enrolled courses
       const endpoints = [
-        '/api/courses/enrolled/',
-        '/api/courses/enrolled/',
-        '/api/enrollments/courses/',
+        'courses/enrolled/',
+        'enrollments/courses/'
       ];
       
       let response = null;
@@ -926,12 +935,12 @@ export const courseAPI = {
           instructor: {
             name: course.instructor?.name || 
                 course.instructor?.username || 
-                  (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
+                (typeof course.instructor === 'string' ? course.instructor : 'Unknown'),
             username: course.instructor?.username || 'unknown'
           },
           category: typeof course.category === 'object' ? 
-                   course.category?.name || 'Uncategorized' : 
-                   course.category || 'Uncategorized',
+                course.category?.name || 'Uncategorized' : 
+                course.category || 'Uncategorized',
           difficulty_level: course.difficulty_level || course.difficulty || 'All Levels',
           duration_in_weeks: course.duration_in_weeks || 'Self-paced',
           price: parseFloat(course.price || 0),
@@ -1049,120 +1058,57 @@ export const courseAPI = {
   // Enroll in a course
   enrollInCourse: async (courseId) => {
     try {
-      console.log('\n=== Enrolling in Course ===');
-      console.log('Course ID:', courseId);
+      console.log(`\n=== Enrolling in course ${courseId} ===`);
       
-      // Define multiple potential endpoints to try
+      // Try multiple potential endpoints
       const endpoints = [
         `/api/courses/${courseId}/enroll/`,
-        `/api/courses/enroll/${courseId}/`,
-        `/api/courses/${courseId}/enroll/`,
-        `/api/enrollments/courses/${courseId}/enroll/`
+        `/api/enrollments/courses/${courseId}/enroll/`,
+        `/api/courses/enroll/${courseId}/`
       ];
       
       let lastError = null;
-      let successResponse = null;
+      let response = null;
       
       // Try each endpoint until one works
       for (const endpoint of endpoints) {
         try {
           console.log(`Trying enrollment endpoint: ${endpoint}`);
-          const response = await api.post(endpoint);
-          console.log('Successful enrollment response:', response);
-          
-          successResponse = response;
-          break;  // Exit the loop if successful
-        } catch (endpointError) {
-          console.error(`Error with endpoint ${endpoint}:`, {
-            status: endpointError.response?.status,
-            data: endpointError.response?.data,
-            message: endpointError.message
+          response = await api.post(endpoint);
+          console.log('Enrollment successful:', response);
+          break;
+        } catch (error) {
+          console.log(`Error with endpoint ${endpoint}:`, {
+            status: error.response?.status,
+            message: error.message
           });
           
-          // If we get a meaningful error (not 404), save it and exit
-          if (endpointError.response && endpointError.response.status !== 404) {
-            lastError = endpointError;
-            break;
+          // If not a 404, this is a "real" error with a valid endpoint
+          if (error.response?.status !== 404) {
+            throw error;
           }
           
-          lastError = endpointError;
-          // Continue trying next endpoint
+          lastError = error;
         }
       }
       
-      // If we got a successful response
-      if (successResponse) {
-        return {
-          success: true,
-          courseId: courseId,
-          message: successResponse.message || 'Successfully enrolled in course'
-        };
+      if (!response && lastError) {
+        throw lastError;
       }
       
-      // If we got here, no endpoint worked
-      throw lastError || new Error('All enrollment endpoints failed');
-      
+      return {
+        success: true,
+        message: response?.message || 'Successfully enrolled in the course',
+        data: response
+      };
     } catch (error) {
       console.error('Error enrolling in course:', error);
-      console.error('Detailed error info:', {
-        message: error.message,
-        status: error.response?.status,
-        data: error.response?.data,
-        stack: error.stack
-      });
-      
-      // Check for specific error cases
-      
-      // Case 1: Already enrolled
-      if (error.message?.includes('already enrolled') || 
-          error.response?.data?.detail?.includes('already enrolled')) {
-        return {
-          success: true,
-          courseId: courseId,
-          message: 'You are already enrolled in this course'
-        };
-      }
-      
-      // Case 2: Server error (500)
-      if (error.response?.status === 500) {
-        // Try directly using fetch as a fallback
-        try {
-          console.log('Trying fetch fallback for enrollment');
-          const response = await fetch(`http://localhost:8000/api/courses/${courseId}/enroll/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${JSON.parse(localStorage.getItem('authTokens')).access}`
-            }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Fetch fallback succeeded:', data);
-            return {
-              success: true,
-              courseId: courseId,
-              message: data.message || 'Successfully enrolled in course'
-            };
-          }
-        } catch (fetchError) {
-          console.error('Fetch fallback also failed:', fetchError);
-        }
-        
-        return {
-          success: false,
-          courseId: courseId,
-          message: 'Server error during enrollment. Please try again later.',
-          serverError: true
-        };
-      }
-      
-      // Default case
-      return {
-        success: false,
-        courseId: courseId,
-        message: error.response?.data?.detail || error.message || 'Failed to enroll in course'
-      };
+      throw new Error(
+        error.response?.data?.message || 
+        error.response?.data?.detail || 
+        error.message || 
+        'Failed to enroll in course'
+      );
     }
   },
 
@@ -1387,6 +1333,213 @@ export const courseAPI = {
       });
       throw error;
     }
+  },
+
+  // Create payment order for course enrollment
+  createPaymentOrder: async (courseId) => {
+    try {
+      console.log(`\n=== Creating payment order for course ${courseId} ===`);
+      
+      // Log the constructed URL
+      const requestUrl = `courses/${courseId}/create-payment/`;
+      console.log("Payment order request URL:", `${api.defaults.baseURL}/${requestUrl}`);
+      
+      // Try using the Razorpay payment endpoint first
+      try {
+        // Add debugging for request headers
+        console.log("Request headers:", api.defaults.headers);
+        
+        // Check auth token
+        const authTokens = localStorage.getItem('authTokens');
+        console.log("Auth token available:", !!authTokens);
+        console.log("Auth token first 10 chars:", authTokens ? JSON.parse(authTokens).access.substring(0, 10) + "..." : "No token");
+        
+        // Make request with retry logic
+        let attempts = 0;
+        const maxAttempts = 1; // Reduced to just 1 attempt before trying the fallback
+        let lastError = null;
+        
+        while (attempts < maxAttempts) {
+          attempts++;
+          console.log(`Attempt ${attempts} to create payment order...`);
+          
+          try {
+            console.log("Sending POST request to:", requestUrl);
+            const response = await api.post(requestUrl);
+            console.log("Payment order response:", response);
+            
+            if (!response || !response.data) {
+              console.error("Invalid payment order response:", response);
+              throw new Error("Invalid response from payment order API");
+            }
+            
+            // Log the success details
+            console.log("Payment order creation successful:", {
+              orderId: response.data.id,
+              amount: response.data.amount,
+              currency: response.data.currency
+            });
+            
+            return response.data;
+          } catch (error) {
+            console.error(`Attempt ${attempts} failed:`, error);
+            
+            // Try to extract more specific error details from the response HTML
+            let errorDetails = {};
+            try {
+              if (error.response?.data && typeof error.response.data === 'string' && error.response.data.includes('<!DOCTYPE html>')) {
+                console.log("Attempting to extract error from HTML response");
+                
+                // Check if there's a Python traceback in the response
+                const tracebackStart = error.response.data.indexOf('Traceback (most recent call last):');
+                if (tracebackStart > -1) {
+                  const traceback = error.response.data.substring(tracebackStart);
+                  const errorMessageMatch = traceback.match(/(?:Error|Exception):\s*(.+?)(?:\n|$)/);
+                  if (errorMessageMatch && errorMessageMatch[1]) {
+                    errorDetails.pythonError = errorMessageMatch[1].trim();
+                    console.error("Extracted Python error:", errorDetails.pythonError);
+                  }
+                }
+              } else if (error.response?.data) {
+                // If it's a JSON response with error details
+                errorDetails = error.response.data;
+                console.error("Error response data:", errorDetails);
+              }
+            } catch (parseError) {
+              console.error("Error parsing error details:", parseError);
+            }
+            
+            console.error("Error details:", {
+              message: error.message,
+              status: error.response?.status,
+              statusText: error.response?.statusText,
+              data: errorDetails || error.response?.data,
+              url: error.config?.url
+            });
+            
+            lastError = error;
+            
+            // Save the structured error details to the error object
+            lastError.extractedDetails = errorDetails;
+            
+            // If this is not the last attempt, wait before retrying
+            if (attempts < maxAttempts) {
+              console.log(`Waiting before retry ${attempts + 1}...`);
+              await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+            }
+          }
+        }
+        
+        // If we got here, all attempts failed - try direct payment endpoint
+        console.log("Standard payment endpoint failed, trying direct payment endpoint...");
+        return await courseAPI.directPaymentOrder(courseId);
+        
+      } catch (mainError) {
+        // If the standard method fails, try direct payment
+        console.error("Standard payment creation failed completely:", mainError);
+        return await courseAPI.directPaymentOrder(courseId);
+      }
+    } catch (error) {
+      console.error('Error creating payment order:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.extractedDetails || error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url
+      });
+      
+      // Create a more informative error message based on available details
+      let errorMessage = 'Failed to create payment order';
+      
+      if (error.extractedDetails?.pythonError) {
+        errorMessage = `Backend error: ${error.extractedDetails.pythonError}`;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+        if (error.response.data.details) {
+          errorMessage += `: ${error.response.data.details}`;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      throw new Error(errorMessage);
+    }
+  },
+  
+  // Direct payment order (fallback method without using Razorpay)
+  directPaymentOrder: async (courseId) => {
+    try {
+      console.log(`\n=== Creating DIRECT payment order for course ${courseId} ===`);
+      
+      // Log the constructed URL
+      const requestUrl = `courses/${courseId}/direct-payment/`;
+      console.log("Direct payment order request URL:", `${api.defaults.baseURL}/${requestUrl}`);
+      
+      // Make request
+      console.log("Sending POST request to direct payment endpoint:", requestUrl);
+      const response = await api.post(requestUrl);
+      
+      if (!response || !response.data) {
+        console.error("Invalid direct payment order response:", response);
+        throw new Error("Invalid response from direct payment API");
+      }
+      
+      // Log the success details
+      console.log("Direct payment order created successfully:", {
+        orderId: response.data.id,
+        amount: response.data.amount,
+        currency: response.data.currency
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error creating direct payment order:', error);
+      
+      // If even this fails, we're out of options
+      throw new Error('Payment system is completely unavailable. Please try direct enrollment instead.');
+    }
+  },
+
+  // Verify payment and complete enrollment
+  verifyPayment: async (courseId, paymentData) => {
+    try {
+      console.log(`\n=== Verifying payment for course ${courseId} ===`);
+      const response = await api.post(`courses/${courseId}/verify-payment/`, paymentData);
+      return response;
+    } catch (error) {
+      console.error('Error verifying payment:', error);
+      throw new Error(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to verify payment'
+      );
+    }
+  },
+  
+  // Direct enrollment for emergency access (bypasses payment)
+  directEnroll: async (courseId) => {
+    try {
+      console.log(`\n=== Emergency direct enrollment for course ${courseId} ===`);
+      // Try a couple of different potential endpoints
+      try {
+        const response = await api.post(`courses/${courseId}/direct-enroll/`);
+        return response;
+      } catch (err) {
+        if (err.response?.status === 404) {
+          // Try alternate endpoint
+          const response = await api.post(`enrollments/direct/${courseId}/`);
+          return response;
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error('Error with direct enrollment:', error);
+      throw new Error(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to direct enroll'
+      );
+    }
   }
 };
 
@@ -1409,9 +1562,8 @@ export const enrollmentAPI = {
       
       // Try multiple potential endpoints that might contain enrolled courses
       const endpoints = [
-        '/api/courses/enrolled/',
-        '/api/courses/enrolled/',
-        '/api/enrollments/courses/',
+        'courses/enrolled/',
+        'enrollments/courses/'
       ];
       
       let response = null;

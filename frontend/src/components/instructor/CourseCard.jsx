@@ -16,7 +16,7 @@ import { EditIcon, DeleteIcon, ViewIcon } from '@chakra-ui/icons';
 const CourseCard = ({ course, onPublishToggle, onDelete }) => {
     const handlePublishToggle = () => {
         if (onPublishToggle) {
-            onPublishToggle(course.id, course.is_published ? 'published' : 'draft');
+            onPublishToggle(course.id, course.status || (course.is_published ? 'published' : 'draft'));
         }
     };
 

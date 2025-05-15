@@ -36,6 +36,7 @@ import json
 import os
 import datetime
 import time
+import razorpay
 
 # Custom permissions
 class IsInstructorOrAdminUser(permissions.BasePermission):
@@ -1210,7 +1211,8 @@ class CourseStatusUpdateAPIView(generics.UpdateAPIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
                 
-            # Update the course status
+            # Update the course status and is_published fields
+            course.status = status_value
             course.is_published = (status_value == 'published')
             course.save()
             
@@ -3241,3 +3243,340 @@ def enroll_course(request, course_id):
             {'message': 'An error occurred during enrollment'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_payment_order(request, course_id):
+    try:
+        print(f"\n=== Creating payment order for course {course_id} ===")
+        print(f"User: {request.user.username} (ID: {request.user.id})")
+        
+        # Validate Razorpay module
+        try:
+            import razorpay
+            print("Razorpay module imported successfully")
+            print(f"Razorpay version: {razorpay.__version__}")
+        except ImportError as e:
+            print(f"Error importing razorpay module: {str(e)}")
+            return Response({
+                'error': 'Payment system dependency is missing',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        course = get_object_or_404(Course, id=course_id)
+        print(f"Course found: {course.title} (ID: {course.id}, Price: {course.price})")
+        
+        # Ensure course price is valid
+        if course.price is None or course.price <= 0:
+            print(f"Invalid course price: {course.price}")
+            return Response({
+                'error': 'Invalid course price',
+                'details': f"Course with ID {course_id} has an invalid price: {course.price}"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Convert price to integer (paise) and ensure it's valid
+        try:
+            amount_in_paise = int(course.price * 100)
+            if amount_in_paise <= 0:
+                raise ValueError(f"Amount in paise is invalid: {amount_in_paise}")
+            print(f"Price converted to paise: {amount_in_paise}")
+        except (TypeError, ValueError) as e:
+            print(f"Error converting price to paise: {str(e)}")
+            return Response({
+                'error': 'Invalid price format',
+                'details': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate Razorpay API keys
+        try:
+            key_id = settings.RAZORPAY_KEY_ID
+            key_secret = settings.RAZORPAY_KEY_SECRET
+            
+            print(f"RAZORPAY_KEY_ID: {'Present' if key_id else 'Missing'}")
+            print(f"RAZORPAY_KEY_SECRET: {'Present' if key_secret else 'Missing'}")
+            
+            if not key_id or not key_secret:
+                return Response({
+                    'error': 'Payment gateway credentials are missing',
+                    'details': 'Razorpay API keys are not configured properly'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            print(f"Razorpay Key ID: {key_id[:5]}...{key_id[-5:] if len(key_id) > 10 else key_id}")
+            print(f"Razorpay Key Secret length: {len(key_secret)} characters")
+        except Exception as key_error:
+            print(f"Error accessing Razorpay API keys: {str(key_error)}")
+            return Response({
+                'error': 'Payment configuration error',
+                'details': str(key_error)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Initialize Razorpay client
+        try:
+            client = razorpay.Client(auth=(key_id, key_secret))
+            print("Razorpay client initialized successfully")
+            
+            # Verify that the client is initialized properly by checking an attribute
+            if not hasattr(client, 'order'):
+                raise Exception("Razorpay client missing 'order' attribute")
+                
+        except Exception as client_error:
+            print(f"Razorpay client initialization error: {str(client_error)}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': 'Payment gateway initialization failed',
+                'details': str(client_error)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Create Razorpay order data
+        order_receipt = f'course_{course_id}_{request.user.id}'
+        data = {
+            'amount': amount_in_paise,
+            'currency': 'INR',
+            'receipt': order_receipt,
+            'notes': {
+                'course_id': course_id,
+                'user_id': request.user.id,
+                'course_title': course.title
+            },
+            'payment_capture': 1  # Auto capture payment
+        }
+        
+        print("Creating Razorpay order with data:", data)
+        
+        try:
+            payment = client.order.create(data=data)
+            print("Razorpay order created successfully:", payment)
+            
+            return Response({
+                'id': payment['id'],
+                'amount': payment['amount'],
+                'currency': payment['currency'],
+                'receipt': payment['receipt']
+            })
+            
+        except Exception as order_error:
+            print(f"Error creating Razorpay order: {str(order_error)}")
+            print(f"Error type: {type(order_error).__name__}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': 'Failed to create payment order',
+                'details': str(order_error)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    except Course.DoesNotExist:
+        print("Course not found:", course_id)
+        return Response({
+            'error': 'Course not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+        
+    except Exception as e:
+        print("Error creating payment order:", str(e))
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@csrf_exempt
+def verify_payment(request, course_id):
+    try:
+        # Get payment details from request
+        payment_id = request.data.get('razorpay_payment_id')
+        order_id = request.data.get('razorpay_order_id')
+        signature = request.data.get('razorpay_signature')
+        
+        if not all([payment_id, order_id, signature]):
+            return Response({
+                'error': 'Missing payment verification details'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Initialize Razorpay client
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        
+        # Verify signature
+        try:
+            client.utility.verify_payment_signature({
+                'razorpay_payment_id': payment_id,
+                'razorpay_order_id': order_id,
+                'razorpay_signature': signature
+            })
+            
+            # If verification successful, enroll user in course
+            course = get_object_or_404(Course, id=course_id)
+            enrollment = Enrollment.objects.create(
+                user=request.user,
+                course=course,
+                status='active'
+            )
+            
+            return Response({
+                'status': 'success',
+                'message': 'Payment verified and enrollment successful',
+                'enrollment_id': enrollment.id
+            })
+            
+        except razorpay.errors.SignatureVerificationError:
+            return Response({
+                'error': 'Invalid payment signature'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def direct_enroll(request, course_id):
+    """Emergency endpoint to directly enroll a user in a course without payment"""
+    try:
+        print(f"\n=== Direct enrollment for course {course_id} ===")
+        # Get the course
+        course = get_object_or_404(Course, id=course_id)
+        
+        print(f"Course found: {course.title} (ID: {course.id})")
+        print(f"User: {request.user.username} (ID: {request.user.id})")
+        
+        # Check if user is already enrolled
+        existing_enrollment = Enrollment.objects.filter(
+            user=request.user,
+            course=course
+        ).first()
+        
+        if existing_enrollment:
+            # If already enrolled, just return success
+            print(f"User already enrolled in course with enrollment ID: {existing_enrollment.id}")
+            return Response({
+                'status': 'success',
+                'message': 'User already enrolled in this course',
+                'enrollment_id': existing_enrollment.id
+            })
+        
+        # Create new enrollment
+        try:
+            enrollment = Enrollment.objects.create(
+                user=request.user,
+                course=course,
+                status='active'
+            )
+            print(f"New enrollment created with ID: {enrollment.id}")
+            
+            # Create progress records
+            try:
+                # Get all sections in this course
+                sections = Section.objects.filter(module__course=course)
+                print(f"Creating progress records for {sections.count()} sections")
+                
+                # Create progress records in bulk
+                from enrollments.models import Progress
+                progress_records = []
+                
+                for section in sections:
+                    progress_records.append(
+                        Progress(
+                            user=request.user,
+                            section=section,
+                            enrollment=enrollment,
+                            completed=False
+                        )
+                    )
+                
+                if progress_records:
+                    Progress.objects.bulk_create(progress_records)
+                    print(f"Created {len(progress_records)} progress records")
+            except Exception as progress_error:
+                print(f"Error creating progress records: {str(progress_error)}")
+                # Continue even if progress creation fails
+            
+            return Response({
+                'status': 'success',
+                'message': 'Direct enrollment successful',
+                'enrollment_id': enrollment.id
+            })
+        except Exception as enrollment_error:
+            print(f"Error creating enrollment: {str(enrollment_error)}")
+            return Response({
+                'error': 'Failed to create enrollment',
+                'details': str(enrollment_error)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    except Course.DoesNotExist:
+        print(f"Course with ID {course_id} not found")
+        return Response({
+            'error': 'Course not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+        
+    except Exception as e:
+        print("Error in direct enrollment:", str(e))
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def direct_payment_order(request, course_id):
+    """
+    Simplified version of payment order creation that doesn't rely on Razorpay.
+    This is used as a fallback when there are issues with the Razorpay integration.
+    """
+    try:
+        print(f"\n=== Creating DIRECT payment order for course {course_id} ===")
+        print(f"User: {request.user.username} (ID: {request.user.id})")
+        
+        # Get the course
+        course = get_object_or_404(Course, id=course_id)
+        print(f"Course found: {course.title} (ID: {course.id}, Price: {course.price})")
+        
+        # Ensure course price is valid
+        if course.price is None or course.price <= 0:
+            print(f"Invalid course price: {course.price}")
+            return Response({
+                'error': 'Invalid course price',
+                'details': f"Course with ID {course_id} has an invalid price: {course.price}"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create a simple order without using Razorpay
+        amount_in_paise = int(course.price * 100)
+        
+        # Generate a unique order ID
+        import uuid
+        import time
+        order_id = f"order_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        
+        # Create order data
+        order_data = {
+            'id': order_id,
+            'amount': amount_in_paise,
+            'currency': 'INR',
+            'receipt': f'course_{course_id}_{request.user.id}',
+            'notes': {
+                'course_id': course_id,
+                'user_id': request.user.id,
+                'course_title': course.title
+            }
+        }
+        
+        print("Direct payment order created:", order_data)
+        
+        return Response(order_data)
+        
+    except Course.DoesNotExist:
+        print("Course not found:", course_id)
+        return Response({
+            'error': 'Course not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+        
+    except Exception as e:
+        print("Error creating direct payment order:", str(e))
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

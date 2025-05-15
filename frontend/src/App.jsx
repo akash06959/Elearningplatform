@@ -93,7 +93,15 @@ function App() {
       <Route path="/redirect/course/:courseId" element={<CourseRedirect />} />
       
       {/* Test route for CourseLearning without auth */}
-      <Route path="/test/courses/:courseId/learn" element={<CourseLearning />} />
+      <Route 
+        path="/test/courses/:courseId/learn" 
+        element={
+          <>
+            {console.log("Rendering test CourseLearning route")}
+            <CourseLearning />
+          </>
+        } 
+      />
       
       {/* Root route with redirect */}
       <Route 

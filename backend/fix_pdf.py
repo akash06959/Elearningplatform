@@ -6,6 +6,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'elearning_backend.settings')
 django.setup()
 
 # Import models
+
 from courses.models import Module, Section
 
 # Fix functions

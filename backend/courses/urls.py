@@ -89,4 +89,8 @@ urlpatterns = [
     
     # Add router URLs to urlpatterns
     path('', include(router.urls)),
+    path('<int:course_id>/create-payment/', views.create_payment_order, name='create_payment_order'),
+    path('<int:course_id>/direct-payment/', views.direct_payment_order, name='direct_payment_order'),
+    path('<int:course_id>/verify-payment/', views.verify_payment, name='verify_payment'),
+    path('<int:course_id>/direct-enroll/', views.direct_enroll, name='direct_enroll'),
 ]

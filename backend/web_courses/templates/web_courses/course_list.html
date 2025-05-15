@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container py-4">
+        <h2 class="mb-4">Available Courses</h2>
+        
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        {% if courses %}
+            <div class="row">
+                {% for course in courses %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100">
+                            {% if course.image %}
+                                <img src="{{ course.image.url }}" class="card-img-top" alt="{{ course.title }}">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ course.title }}</h5>
+                                <p class="card-text">{{ course.description|truncatewords:20 }}</p>
+                                <a href="{% url 'web_courses:course_detail' course.id %}" class="btn btn-primary">View Course</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-info" role="alert">
+                No courses are available at the moment.
+            </div>
+        {% endif %}
+
+        {% if debug %}
+        <div class="mt-4">
+            <h4>Debug Information</h4>
+            <pre>
+                Number of courses: {{ courses|length }}
+            </pre>
+        </div>
+        {% endif %}
+    </div>
+{% endblock %} 

@@ -1,7 +1,39 @@
-{% if enrolled_courses %}
-    {% for course in enrolled_courses %}
-        <!-- Your course display code -->
-    {% endfor %}
-{% else %}
-    <p>You are not enrolled in any courses yet.</p>
-{% endif %}
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container py-4">
+        <h2 class="mb-4">My Enrolled Courses</h2>
+        
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        {% if enrolled_courses %}
+            <div class="row">
+                {% for course in enrolled_courses %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100">
+                            {% if course.image %}
+                                <img src="{{ course.image.url }}" class="card-img-top" alt="{{ course.title }}">
+                            {% endif %}
+                            <div class="card-body">
+                                <h5 class="card-title">{{ course.title }}</h5>
+                                <p class="card-text">{{ course.description|truncatewords:20 }}</p>
+                                <a href="{% url 'course_detail' course.id %}" class="btn btn-primary">Continue Learning</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-info" role="alert">
+                You are not enrolled in any courses yet. 
+                <a href="{% url 'course_list' %}" class="alert-link">Browse available courses</a>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

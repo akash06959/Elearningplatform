@@ -28,6 +28,10 @@ function CourseLearning() {
 
   useEffect(() => {
     console.log('CourseLearning: Component mounted, courseId:', courseId);
+    console.log('CourseLearning: Full component props/state inspection');
+    console.log('- Navigate function available:', !!navigate);
+    console.log('- Course ID from params:', courseId);
+    console.log('- Current URL:', window.location.href);
     
     if (!courseId) {
       console.error('CourseLearning: No course ID provided');

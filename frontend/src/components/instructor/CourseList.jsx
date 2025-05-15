@@ -90,8 +90,8 @@ const InstructorCourseList = () => {
                         course.id === courseId 
                             ? { 
                                 ...course, 
-                                is_published: newStatus === 'published',
-                                status: newStatus
+                                status: newStatus,
+                                is_published: newStatus === 'published'
                               }
                             : course
                     )
@@ -111,8 +111,6 @@ const InstructorCourseList = () => {
             });
         } finally {
             setLoading(false);
-            // Refresh the course list to ensure we have the latest data
-            fetchCourses();
         }
     };
 

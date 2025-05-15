@@ -37,9 +37,9 @@ urlpatterns = [
     path('api/enrollments/', include('enrollments.urls')),
     path('api/exams/', include('exams.urls')),
     
-    # New application endpoints
+    # Web application endpoints
     path('accounts/', include('accounts.urls', namespace='web_accounts')),
-    path('courses/', include('courses.urls', namespace='web_courses')),
+    path('courses/', include('web_courses.urls', namespace='web_courses')),
     
     # Default redirect
     path('', RedirectView.as_view(url='http://localhost:3000/login', permanent=False)),
